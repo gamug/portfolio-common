@@ -19,7 +19,7 @@ Shared by the pricing and edgar modules (both need "what tickers do we
 track"), which is why it lives in `common/` rather than either one.
 
 Point-in-time membership (an `as_of` date, instead of just "today") is
-handled by the sibling `common.universe_history` module, backed by a
+handled by the sibling `portfolio_common.universe_history` module, backed by a
 dedicated `data/universe.db` -- deliberately not something this module
 touches on the default path (as_of=None keeps the exact behavior below:
 in-process cached live scrape, no DB, no filesystem write). See
@@ -134,14 +134,14 @@ def list_universe(sector: str | None = None, as_of: date | None = None) -> list[
 
     as_of=None (default): today's live/cached scrape -- unchanged behavior,
     no DB touch. as_of=<date>: point-in-time membership from the persisted
-    history in common.universe_history, raising ValueError if that date
+    history in portfolio_common.universe_history, raising ValueError if that date
     predates the backfilled coverage or no backfill has been run yet.
     """
     if as_of is not None:
         # Local import: avoids a module-level cycle (universe_history
         # imports list_universe from here) and keeps the as_of=None path
-        # from ever touching common.universe_history at all.
-        from common.universe_history import query_as_of  # noqa: PLC0415
+        # from ever touching portfolio_common.universe_history at all.
+        from portfolio_common.universe_history import query_as_of  # noqa: PLC0415
 
         return query_as_of(as_of, sector=sector)
 
@@ -159,11 +159,11 @@ def resolve_symbol(query: str, as_of: date | None = None) -> dict | None:
 
     as_of=None (default): resolves against today's live/cached scrape.
     as_of=<date>: resolves against point-in-time membership (see
-    common.universe_history), raising ValueError if that date predates the
+    portfolio_common.universe_history), raising ValueError if that date predates the
     backfilled coverage or no backfill has been run yet.
     """
     if as_of is not None:
-        from common.universe_history import resolve_as_of  # noqa: PLC0415
+        from portfolio_common.universe_history import resolve_as_of  # noqa: PLC0415
 
         return resolve_as_of(query, as_of)
 

@@ -3,17 +3,17 @@ src/common/universe_history.py
 
 Point-in-time S&P 500 membership: reconstructs valid_from/valid_to
 intervals per ticker by combining today's live roster
-(`common.portfolio.load_universe()`) with the "Historical components of the
+(`portfolio_common.portfolio.load_universe()`) with the "Historical components of the
 S&P 500" Wikipedia article's table of every index addition/removal since
 1976 (https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500,
 table id="changes"), then persists the result to a small dedicated SQLite
 file (`data/universe.db` by default, override via $UNIVERSE_DB_PATH) so
-`common.portfolio`'s `list_universe()`/`resolve_symbol()` can answer "who
+`portfolio_common.portfolio`'s `list_universe()`/`resolve_symbol()` can answer "who
 was tracked as of date X", not just "who is tracked today" -- closing the
 survivorship-bias gap the live-scrape-only design otherwise has.
 
 Deliberately NOT wired into the default (as_of=None) path of
-common.portfolio -- that path stays exactly as it was (in-process cached
+portfolio_common.portfolio -- that path stays exactly as it was (in-process cached
 live scrape, no DB touch at all), so existing callers are unaffected.
 Backfilling history and recording forward snapshots are both explicit,
 manually-run operations (see cli/pricing_cli.py's
@@ -34,7 +34,7 @@ from pathlib import Path
 import httpx
 from bs4 import BeautifulSoup
 
-from common.portfolio import WIKIPEDIA_HEADERS, list_universe
+from portfolio_common.portfolio import WIKIPEDIA_HEADERS, list_universe
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ CHANGES_URL = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_
 _MIN_CHANGES_ROW_CELLS = 5
 _REASON_CELL_INDEX = 5
 
-# common.portfolio.COLUMNS -> universe_membership's lower_snake_case column
+# portfolio_common.portfolio.COLUMNS -> universe_membership's lower_snake_case column
 # names. Kept as an explicit map (not a mechanical .lower()) so it survives
 # a COLUMNS rename without silently breaking, and so query results can be
 # mapped straight back to the same dict shape non-as_of callers already get.
@@ -175,7 +175,7 @@ def _parse_changes_table(page_html: str) -> list[ChangeEvent]:
     blank). Either the Added or the Removed side (but not both, in
     practice) can be blank for a pure addition/removal with no direct
     replacement. Position-based, not header-text-based, for the same reason
-    as common.portfolio._parse_constituents_table.
+    as portfolio_common.portfolio._parse_constituents_table.
     """
     soup = BeautifulSoup(page_html, "html.parser")
     table = soup.find("table", {"id": "changes"})
@@ -431,7 +431,7 @@ def query_as_of(as_of: date, sector: str | None = None) -> list[dict]:
 def resolve_as_of(query: str, as_of: date) -> dict | None:
     """Resolve a ticker symbol OR company name to its canonical universe
     row as of `as_of`, or None if nothing matches. Same exact-then-partial
-    matching semantics as common.portfolio.resolve_symbol. Propagates
+    matching semantics as portfolio_common.portfolio.resolve_symbol. Propagates
     query_as_of's ValueError for an out-of-coverage as_of."""
     q = query.strip()
     if not q:
