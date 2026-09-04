@@ -47,6 +47,20 @@ The `sector_summary` stage and every query/correction helper read only result
 tables + `articles` metadata, never `body_text`, so they need **no** SOURCE — a
 plain `news_nlp.db.connect()` is enough.
 
+## External consumers
+
+`list_articles` / `get_article_detail` / the `*_stats` functions are shaped for
+`portfolio-nlp`'s own FastAPI endpoints (paginated, dict-per-call). A consumer
+outside `portfolio-nlp` entirely that just wants every fully-processed article as
+plain rows — e.g. a downstream knowledge-graph ETL — should use
+`news_nlp.fetch_processed_articles(conn, limit=...)` instead of writing its own
+join: `connect_pipeline(results_db=..., source_db=...)` then this one call hides
+the SOURCE/RESULTS split the same way the pipeline's own readers do. Don't import
+`news_nlp.db._articles_rel` (or any other underscore-prefixed name) directly from
+outside this package to build a bespoke query — it's internal, not covered by this
+package's version-compatibility guarantees; ask for (or add) a named export like
+this one instead.
+
 ## Caveats
 
 - **Stale WAL on the SOURCE.** A `mode=ro` open fails if the SOURCE was left with
