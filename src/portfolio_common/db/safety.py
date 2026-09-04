@@ -56,6 +56,7 @@ class Allowlist:
 
         _ORDER_COLUMNS = Allowlist("discovered_at", "ticker", "status")
 
+
         def list_urls(db: Database, *, order_by: str = "discovered_at") -> list[dict]:
             column = _ORDER_COLUMNS.check(order_by)
             cur = db.execute(f"SELECT * FROM discovered_urls ORDER BY {column}")  # noqa: S608

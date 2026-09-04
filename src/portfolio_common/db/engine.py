@@ -18,6 +18,7 @@ free -- no ``sqlite3.Connection`` subclassing trick required.
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
@@ -42,7 +43,7 @@ _STALE_WAL_MSG = (
     "{path} has an un-checkpointed write-ahead log ({wal} exists and is "
     "non-empty). It is being ATTACHed read-only (mode=ro), which cannot "
     "replay a WAL, so the newest data would be invisible. Checkpoint it "
-    "first -- `sqlite3 {path} \"PRAGMA wal_checkpoint(TRUNCATE);\"` -- or "
+    'first -- `sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- or '
     "let its writer close cleanly, then re-run."
 )
 _ATTACH_FAILED_MSG = "Could not ATTACH {path} read-only (mode=ro) as {alias!r}: {error}."
@@ -61,7 +62,7 @@ class Database:
     @classmethod
     def connect(
         cls: type[T],
-        path: str | Path,
+        path: str | os.PathLike[str],
         *,
         read_only: bool = False,
         wal: bool = False,
@@ -126,7 +127,7 @@ class Database:
 
     # -- ATTACH / DETACH ----------------------------------------------------
 
-    def attach(self, path: str | Path, alias: str, *, read_only: bool = True) -> None:
+    def attach(self, path: str | os.PathLike[str], alias: str, *, read_only: bool = True) -> None:
         """ATTACH *path* to this connection as schema *alias*.
 
         *alias* must be a plain SQL identifier (checked against a fixed
@@ -154,7 +155,7 @@ class Database:
         try:
             # alias is validated above (not a bindable `?` parameter --
             # SQLite only parameterizes values); the path is bound.
-            self._conn.execute(f"ATTACH DATABASE ? AS {alias}", (uri,))  # noqa: S608
+            self._conn.execute(f"ATTACH DATABASE ? AS {alias}", (uri,))
         except sqlite3.OperationalError as exc:
             raise RuntimeError(_ATTACH_FAILED_MSG.format(path=p, alias=alias, error=exc)) from exc
 
@@ -165,7 +166,7 @@ class Database:
         ``business_folders/news_nlp``'s ``articles_rel`` state)."""
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid DETACH alias: {alias!r}")
-        self._conn.execute(f"DETACH DATABASE {alias}")  # noqa: S608 -- alias validated above
+        self._conn.execute(f"DETACH DATABASE {alias}")
 
     # -- statement execution ------------------------------------------------
 

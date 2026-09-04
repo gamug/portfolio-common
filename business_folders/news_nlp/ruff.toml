@@ -1,0 +1,13 @@
+# This staging folder is heading toward becoming its own `portfolio-nlp`
+# package/repo, but for now it's linted as part of `portfolio-common` (see
+# the brief: `uv run ruff check business_folders/news_nlp` from the repo
+# root). Extends the shared repo config -- the canonical source of truth for
+# lint rules -- and re-applies its "literal expected values in tests are the
+# spec, not a magic number to hide behind a constant" per-file-ignore for
+# this folder's own tests/: `.code_quality/ruff.toml`'s per-file-ignores glob
+# (`../tests/**/*.py`) is written relative to *its own* directory, so it
+# reaches the repo's top-level `tests/` but not this folder's `tests/`.
+extend = "../../.code_quality/ruff.toml"
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004"]
