@@ -6,6 +6,11 @@
 - `universe_history`: point-in-time (`as_of`) membership, backed by its own
   `universe.db`.
 - `errors`: the shared `UpstreamDataError` type.
+- `kg_schema`: the analysis-workstream DB contract for `KG_FINANCIAL_DB` --
+  additive DDL, non-additive migrations, the `schema_version` floor, the `v_*`
+  read-contract views, `env` path resolution, point-in-time `universe.db` reads
+  (`universe_source`), `coverage`, `provenance`, `rundate`, and its own
+  `connect()` factory. Imported as `portfolio_common.kg_schema`.
 """
 
 from portfolio_common.db import connect, enable_foreign_keys, resolve_db_path
