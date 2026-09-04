@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "portfolio-common"
-version = "0.2.0"
-description = "Shared SQLite connection/schema helpers, the kg_schema analysis-DB contract, and the S&P 500 universe loader for the Portfolio Thesis repos"
+version = "0.3.0"
+description = "Shared SQLite connection/schema helpers, the kg_schema analysis-DB contract, the news_nlp results-DB layer, and the S&P 500 universe loader for the Portfolio Thesis repos"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
