@@ -13,15 +13,10 @@ from pathlib import Path
 
 import kg_schema
 
-from .coverage import (
-    DEFAULT_MIN_OBSERVATION_DAYS,
-    CoverageReport,
-    check_coverage,
-    persist_coverage,
-)
+from .coverage import DEFAULT_MIN_OBSERVATION_DAYS, CoverageReport
 from .env import DB_ENV_VAR, database_path, universe_database_path
+from .queries import check_coverage, connect_ro, persist_coverage
 from .rundate import resolve as resolve_analysis_date
-from .universe_source import connect_ro
 
 _HEAD = 12  # symbols shown inline per missing-check line before eliding
 

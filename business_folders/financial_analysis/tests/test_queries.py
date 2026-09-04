@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from kg_schema.universe_source import (
+from kg_schema.queries import (
     connect_ro,
     members_asof,
     resolve_asset_ids,

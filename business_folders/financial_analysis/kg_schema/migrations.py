@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from portfolio_common.db import Database
 
-from . import version as _version
+from . import queries as _queries
 
 Migration = Callable[[Database], None]
 
@@ -46,7 +46,7 @@ def _columns(db: Database, table: str) -> set[str]:
 
 def _m001_bootstrap(db: Database) -> None:
     """No structural change -- just establish the version floor at 1."""
-    _version.ensure(db)
+    _queries.ensure(db)
 
 
 # -- m002: financial_facts append-only, versioned ---------------------------
@@ -348,14 +348,14 @@ MIGRATIONS: list[tuple[int, str, Migration]] = [
 
 def apply_migrations(db: Database) -> list[int]:
     """Run every migration whose version exceeds the recorded floor. Returns applied ids."""
-    _version.ensure(db)
-    at = _version.current_version(db)
+    _queries.ensure(db)
+    at = _queries.current_version(db)
     applied: list[int] = []
     for ver, desc, fn in MIGRATIONS:
         if ver <= at:
             continue
         fn(db)
-        _version.record(db, ver, desc)
+        _queries.record(db, ver, desc)
         db.commit()
         applied.append(ver)
     return applied

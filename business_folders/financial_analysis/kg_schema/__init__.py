@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from portfolio_common.db import Database
 
-from . import version as _version
+from . import queries as _queries
 from .db import connect, connect_ro
 from .ddl import ADDITIVE_DDL, REQUIRED_COLUMNS
 from .env import (
@@ -71,7 +71,7 @@ def _add_missing_columns(db: Database) -> None:
 
 def ensure(db: Database, *, run_migrations: bool = False) -> list[int]:
     """Bring *db*'s database up to the shared schema. Returns applied migration ids."""
-    _version.ensure(db)
+    _queries.ensure(db)
     db.executescript(ADDITIVE_DDL)
     db.commit()
     _add_missing_columns(db)
