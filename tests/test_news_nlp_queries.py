@@ -205,6 +205,95 @@ def test_category_stats_filters_by_company(conn: sqlite3.Connection) -> None:
     assert result[0]["label"] == "earnings_performance"
 
 
+def test_fetch_processed_articles_requires_both_results(conn: sqlite3.Connection) -> None:
+    seed_article(conn, id=1, company="3M", ticker="MMM")
+    seed_article(conn, id=2, company="Apple", ticker="AAPL")  # sentiment only, no category
+    conn.execute(
+        """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
+           VALUES (1, 'positive', 0.9, 0.8, 0.1, 0.1, 'test-model', '2023-01-02T00:00:00Z')"""
+    )
+    conn.execute(
+        """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
+           VALUES (2, 'neutral', 0.5, 0.3, 0.3, 0.4, 'test-model', '2023-01-02T00:00:00Z')"""
+    )
+    conn.commit()
+    db.write_category(
+        conn,
+        1,
+        label="earnings_performance",
+        score=0.5,
+        scores=_CATEGORY_SCORES,
+        model_name="test-model",
+    )
+    conn.commit()
+
+    result = db.fetch_processed_articles(conn)
+    assert [r["id"] for r in result] == [1]
+    row = result[0]
+    assert row["ticker"] == "MMM"
+    assert row["positive"] == 0.8
+    assert row["negative"] == 0.1
+    assert row["cat_label"] == "earnings_performance"
+    assert row["cat_score"] == 0.5
+
+
+def test_fetch_processed_articles_two_tier_reads_body_text_from_source(
+    two_tier_conn: sqlite3.Connection,
+) -> None:
+    db.write_sentiment(
+        two_tier_conn,
+        1,
+        label="positive",
+        score=0.9,
+        positive=0.8,
+        negative=0.1,
+        neutral=0.1,
+        model_name="test-model",
+    )
+    db.write_category(
+        two_tier_conn,
+        1,
+        label="earnings_performance",
+        score=0.5,
+        scores=_CATEGORY_SCORES,
+        model_name="test-model",
+    )
+    two_tier_conn.commit()
+
+    result = db.fetch_processed_articles(two_tier_conn)
+    assert [r["id"] for r in result] == [1]
+    assert result[0]["body_text"]  # came from the attached SOURCE, not the lean RESULTS row
+
+
+def test_fetch_processed_articles_respects_limit(conn: sqlite3.Connection) -> None:
+    for i in (1, 2):
+        seed_article(conn, id=i, company="3M", ticker="MMM")
+    conn.commit()
+    for i in (1, 2):
+        db.write_sentiment(
+            conn,
+            i,
+            label="positive",
+            score=0.9,
+            positive=0.8,
+            negative=0.1,
+            neutral=0.1,
+            model_name="test-model",
+        )
+        db.write_category(
+            conn,
+            i,
+            label="earnings_performance",
+            score=0.5,
+            scores=_CATEGORY_SCORES,
+            model_name="test-model",
+        )
+    conn.commit()
+
+    result = db.fetch_processed_articles(conn, limit=1)
+    assert len(result) == 1
+
+
 def test_entity_stats_orders_by_count_desc(conn: sqlite3.Connection) -> None:
     seed_article(conn, id=1, company="3M")
     conn.executemany(

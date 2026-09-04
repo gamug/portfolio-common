@@ -1,12 +1,15 @@
 """Article-level read/write helpers for the news-NLP RESULTS store: the
-pipeline "pending" fetchers, the per-article result writers, and the read-only
-query helpers behind the FastAPI query endpoints.
+pipeline "pending" fetchers, the per-article result writers, the read-only
+query helpers behind the FastAPI query endpoints, and ``fetch_processed_articles``
+-- a plain export join for consumers outside ``portfolio-nlp`` entirely (e.g. a
+downstream knowledge-graph ETL) that just want every fully-processed article as
+rows, with no FastAPI/pagination shape imposed.
 
-The three ``body_text`` readers qualify ``articles`` with
-``db._articles_rel(conn)`` so they read ``source.articles`` during a two-tier
-pipeline run and ``main.articles`` when serving; every ``write_*`` first
-``db._ensure_article_row`` copies the lean ``articles`` row from SOURCE so the
-``REFERENCES articles(id)`` foreign key holds.
+The ``body_text`` readers (the pending fetchers plus ``fetch_processed_articles``)
+qualify ``articles`` with ``db._articles_rel(conn)`` so they read
+``source.articles`` during a two-tier pipeline run and ``main.articles`` when
+serving; every ``write_*`` first ``db._ensure_article_row`` copies the lean
+``articles`` row from SOURCE so the ``REFERENCES articles(id)`` foreign key holds.
 """
 
 from __future__ import annotations
@@ -71,6 +74,47 @@ def fetch_pending_category_articles(
     if limit:
         sql += f" LIMIT {int(limit)}"
     return conn.execute(sql).fetchall()
+
+
+def fetch_processed_articles(
+    conn: sqlite3.Connection, limit: int | None = None
+) -> list[sqlite3.Row]:
+    """Every successfully-fetched article that has both a sentiment and a
+    category result, as one flat row per article: ``id, ticker, pub_date,
+    fetched_at, body_text, positive, negative, sent_processed_at, cat_label,
+    cat_score, cat_processed_at``.
+
+    Unlike the ``fetch_pending_*`` functions (which drive the pipeline's own
+    "what's left to process" loop) or ``list_articles``/``get_article_detail``
+    (shaped for the FastAPI query endpoints, paginated and dict-per-call), this
+    is a plain read-only export join meant for a consumer outside
+    ``portfolio-nlp`` entirely -- e.g. a downstream knowledge-graph ETL that
+    wants every processed article as rows, unpaginated. It still hides the
+    SOURCE/RESULTS split from that caller: `body_text` is read via
+    `db._articles_rel(conn)` the same way the pipeline's own readers do, so the
+    caller only needs `connect_pipeline()` and this function -- no query of its
+    own, no knowledge of `ATTACH`.
+    """
+    # S608: _articles_rel(conn) is only ever "main" / "source"; `limit` is bound
+    # as a parameter, not interpolated.
+    sql = f"""
+        SELECT a.id AS id, a.ticker AS ticker, a.pub_date AS pub_date,
+               a.fetched_at AS fetched_at, a.body_text AS body_text,
+               s.positive AS positive, s.negative AS negative,
+               s.processed_at AS sent_processed_at,
+               c.label AS cat_label, c.score AS cat_score,
+               c.processed_at AS cat_processed_at
+        FROM {_articles_rel(conn)}.articles a
+        JOIN article_sentiment s ON s.article_id = a.id
+        JOIN article_category c ON c.article_id = a.id
+        WHERE a.fetch_status = 'ok'
+        ORDER BY a.id
+    """  # noqa: S608
+    params: list = []
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    return conn.execute(sql, params).fetchall()
 
 
 def write_sentiment(
