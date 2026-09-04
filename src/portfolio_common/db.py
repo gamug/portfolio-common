@@ -48,6 +48,8 @@ def connect(
     wal: bool = False,
     foreign_keys: bool = False,
     check_same_thread: bool = True,
+    uri: bool = False,
+    factory: type[sqlite3.Connection] = sqlite3.Connection,
 ) -> sqlite3.Connection:
     """Open a connection configured the way the pipeline expects.
 
@@ -63,8 +65,16 @@ def connect(
 
     `check_same_thread=False` lifts sqlite3's thread-binding (needed by
     `URLQueue`, which is shared across an async event loop).
+
+    `uri=True` interprets `db_path` as a `file:...` URI -- required so an
+    `ATTACH DATABASE 'file:...?mode=ro'` on this connection is honored
+    (the `news_nlp` two-tier SOURCE/RESULTS path). `factory` forwards a
+    `sqlite3.Connection` subclass -- e.g. `news_nlp.db._Connection`, which
+    carries per-connection state a base connection would reject. Both
+    default to the plain-connection behavior, so existing callers are
+    unaffected.
     """
-    conn = sqlite3.connect(db_path, check_same_thread=check_same_thread)
+    conn = sqlite3.connect(db_path, check_same_thread=check_same_thread, uri=uri, factory=factory)
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     if wal:
