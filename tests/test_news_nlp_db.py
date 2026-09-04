@@ -175,3 +175,25 @@ def test_require_source_text_passes_on_a_populated_source(
     two_tier_conn: sqlite3.Connection,
 ) -> None:
     db.require_source_text(two_tier_conn)  # source has non-empty body_text -> no raise
+
+
+# --- stale-WAL preflight -----------------------------------------------------
+
+
+def test_attach_source_rejects_source_with_uncheckpointed_wal(
+    source_db_path: Path, results_db_path: Path
+) -> None:
+    # Leave an un-checkpointed -wal next to the SOURCE: WAL mode, auto-checkpoint
+    # off, a real committed write, connection kept open so it is never flushed.
+    holder = sqlite3.connect(source_db_path)
+    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    holder.execute("PRAGMA wal_autocheckpoint=0")
+    holder.execute("INSERT INTO articles (id, ticker, company) VALUES (999, 'ZZZ', 'Z Co')")
+    holder.commit()
+    try:
+        assert Path(f"{source_db_path}-wal").stat().st_size > 0
+
+        with pytest.raises(RuntimeError, match="wal_checkpoint"):
+            db.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+    finally:
+        holder.close()
