@@ -4,15 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "portfolio-common"
-version = "0.4.0"
-description = "Shared SQLite connection/schema helpers, the kg_schema analysis-DB contract, the news_nlp results-DB layer, and the S&P 500 universe loader for the Portfolio Thesis repos"
+version = "1.0.0"
+description = "The single SQLite connection engine (Database) and injection-safe query-building primitives (in_clause, Allowlist) shared across the Portfolio Thesis repos"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = [
-    "httpx[http2]>=0.27.0",
-    "beautifulsoup4>=4.12",
-    "pandas>=2.0",
-]
+dependencies = []
 
 [project.urls]
 Repository = "https://github.com/gamug/portfolio-common"
