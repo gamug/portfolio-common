@@ -1,33 +1,16 @@
-"""Shared building blocks for the Portfolio Thesis repos.
+"""portfolio-common: the single SQLite connection engine and
+injection-safe query-building primitives shared across the Portfolio
+Thesis repos.
 
-- `db` / `schema`: one SQLite connection factory + the canonical pipeline
-  DDL for the shared `urls.db` (`discovered_urls` -> `articles`).
-- `portfolio`: the live S&P 500 universe (Wikipedia scrape + in-process cache).
-- `universe_history`: point-in-time (`as_of`) membership, backed by its own
-  `universe.db`.
-- `errors`: the shared `UpstreamDataError` type.
-- `kg_schema`: the analysis-workstream DB contract for `KG_FINANCIAL_DB` --
-  additive DDL, non-additive migrations, the `schema_version` floor, the `v_*`
-  read-contract views, `env` path resolution, point-in-time `universe.db` reads
-  (`universe_source`), `coverage`, `provenance`, `rundate`, and its own
-  `connect()` factory. Imported as `portfolio_common.kg_schema`.
-- `news_nlp`: the news-NLP results-DB layer -- the five result-table schema, the
-  two-tier SOURCE/RESULTS connection machinery (read-only `ATTACH` of the crawl
-  DB), the pipeline read/write helpers, `sector_summary` composition, the FastAPI
-  query helpers, the manual result-row corrections, and the 10-category taxonomy.
-  Imported as `portfolio_common.news_nlp`.
+Business/domain code that used to live here (kg_schema, news_nlp, the
+urls.db pipeline, the S&P 500 universe helpers) has moved to
+``business_folders/`` in this repo, staged for relocation into the repo
+that owns it. See ``business_folders/README.md`` and ``CHANGELOG.md``
+(v1.0.0) for the migration.
 """
 
-from portfolio_common.db import connect, enable_foreign_keys, resolve_db_path
-from portfolio_common.errors import UpstreamDataError
-from portfolio_common.schema import SCHEMA_VERSION, apply_schema, run_migrations
+from __future__ import annotations
 
-__all__ = [
-    "SCHEMA_VERSION",
-    "UpstreamDataError",
-    "apply_schema",
-    "connect",
-    "enable_foreign_keys",
-    "resolve_db_path",
-    "run_migrations",
-]
+from portfolio_common.db import Allowlist, Database, in_clause
+
+__all__ = ["Allowlist", "Database", "in_clause"]

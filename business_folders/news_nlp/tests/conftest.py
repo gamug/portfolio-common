@@ -1,63 +1,14 @@
-"""Shared fixtures for the portfolio-common test suite."""
+"""Shared fixtures for the news_nlp test suite."""
 
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from portfolio_common import news_nlp
-
-# The universe.db schema `kg_schema.universe_source` reads -- identical to what
-# `portfolio_common.universe_history` writes and to the copy other repos build in
-# their own test fixtures.
-_UNIVERSE_DDL = """
-CREATE TABLE universe_membership (
-    symbol TEXT NOT NULL, security TEXT NOT NULL,
-    gics_sector TEXT, gics_sub_industry TEXT, hq_location TEXT,
-    date_added TEXT, cik TEXT, founded TEXT,
-    valid_from TEXT NOT NULL, valid_to TEXT, source TEXT NOT NULL
-);
-CREATE INDEX idx_membership_symbol ON universe_membership (symbol);
-CREATE INDEX idx_membership_valid ON universe_membership (valid_from, valid_to);
-"""
-
-
-def write_universe_db(
-    path: Path, members: Iterable[tuple[str, str, str | None]], *, source: str = "test"
-) -> Path:
-    """Build a minimal ``universe.db`` at *path*. Each member is
-    ``(symbol, valid_from, valid_to)``; the other columns are filled with
-    placeholders."""
-    conn = sqlite3.connect(path)
-    conn.executescript(_UNIVERSE_DDL)
-    conn.executemany(
-        "INSERT INTO universe_membership "
-        "(symbol, security, gics_sector, gics_sub_industry, valid_from, valid_to, source) "
-        "VALUES (?, ?, 'S1', 'SI0', ?, ?, ?)",
-        [(sym, f"{sym} Inc.", vf, vt, source) for sym, vf, vt in members],
-    )
-    conn.commit()
-    conn.close()
-    return path
-
-
-@pytest.fixture
-def universe_db(tmp_path: Path) -> Callable[..., Path]:
-    """Factory: write a temp ``universe.db`` and return its path.
-
-    ``universe_db([("AAPL", "2020-01-01", None), ...])`` -- ``(symbol, valid_from,
-    valid_to)`` per row."""
-
-    def _make(members: Iterable[tuple[str, str, str | None]], name: str = "universe.db") -> Path:
-        return write_universe_db(tmp_path / name, members)
-
-    return _make
-
-
-# --- news_nlp: results-store DB fixtures -------------------------------------
+import news_nlp
 
 # `articles` DDL for the news_nlp results-store tests: the SOURCE-store shape
 # (with `body_text`) but no FK to `discovered_urls` (the results store has no
@@ -131,17 +82,17 @@ def news_nlp_db_path(tmp_path: Path) -> Path:
     raw.commit()
     raw.close()
 
-    conn = news_nlp.connect(path)
-    news_nlp.init_schema(conn)
-    conn.close()
+    db = news_nlp.connect(path)
+    news_nlp.init_schema(db)
+    db.close()
     return path
 
 
 @pytest.fixture
-def conn(news_nlp_db_path: Path) -> Iterator[sqlite3.Connection]:
-    c = news_nlp.connect(news_nlp_db_path)
-    yield c
-    c.close()
+def conn(news_nlp_db_path: Path) -> Iterator[news_nlp.NewsNlpDatabase]:
+    db = news_nlp.connect(news_nlp_db_path)
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -176,15 +127,17 @@ def results_db_path(tmp_path: Path) -> Path:
     conn.commit()
     conn.close()
 
-    conn = news_nlp.connect(path)
-    news_nlp.init_schema(conn)
-    conn.close()
+    db = news_nlp.connect(path)
+    news_nlp.init_schema(db)
+    db.close()
     return path
 
 
 @pytest.fixture
-def two_tier_conn(source_db_path: Path, results_db_path: Path) -> Iterator[sqlite3.Connection]:
-    conn = news_nlp.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
-    yield conn
-    news_nlp.detach_source(conn)
-    conn.close()
+def two_tier_conn(
+    source_db_path: Path, results_db_path: Path
+) -> Iterator[news_nlp.NewsNlpDatabase]:
+    db = news_nlp.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+    yield db
+    news_nlp.detach_source(db)
+    db.close()
