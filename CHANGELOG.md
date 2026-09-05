@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.1.0 — `news_export`: one shared read contract, not a re-merge
+
+Adds `portfolio_common.news_export` (`connect_readonly` +
+`fetch_processed_articles`): the read-only two-tier SOURCE/RESULTS connect
+and the `articles` ⋈ `article_sentiment` ⋈ `article_category` join, for the
+one case where v1.0.0's "one owner per domain" rule left two repos needing
+the same code: `portfolio-nlp` (which owns writing that schema) and
+`portfolio-knowledge-graph` (which only reads it, from `etl/news_to_rdf.py`).
+
+Between v1.0.0 and this release, `portfolio-knowledge-graph` carried a local
+copy of this exact query (`etl/queries.py`, added because `portfolio-nlp`
+had no tagged release to depend on yet) — its own docstring flagged the real
+cost: a second copy of the join that had to be hand-kept in sync with
+`portfolio-nlp`'s `news_nlp.queries.fetch_processed_articles` if that schema
+ever changed. Rather than resolve that by adding a repo-to-repo dependency
+(`portfolio-knowledge-graph` on `portfolio-nlp`) or reintroducing the full
+pre-1.0 `news_nlp` package here, this release carries only the read join
+itself — the narrowest thing that is genuinely shared, not a re-merge of the
+domain. `portfolio-nlp`'s `news_nlp.queries.fetch_processed_articles` and
+`portfolio-knowledge-graph`'s `etl/news_to_rdf.py` both now call this module
+directly; `etl/queries.py`'s local copy is deleted. `news_nlp`'s schema
+ownership, corrections, taxonomy, and `sector_summary` composition are
+untouched by this release and stay solely in `portfolio-nlp`.
+
+Additive, no breaking changes: v1.0.0 consumers unaffected.
+
 ## v1.0.0 — DB engine + business_folders split (breaking)
 
 **This is a clean break. There is no backward-compatible shim for any
