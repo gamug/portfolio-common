@@ -1,5 +1,59 @@
 # Changelog
 
+## v1.2.0 — engine-agnostic seam: consumers stop naming SQLite
+
+Goal: the database engine is known in exactly one place — here. A future
+engine swap becomes a new `Dialect` implementation plus a `connect_url`
+scheme, with nothing in `portfolio-nlp` / `-knowledge-graph` /
+`-financial-analysis` / `-data-mining` changing. SQLite stays the only real
+backend; this release adds no second engine and changes no SQL semantics —
+`SqliteDialect` emits the exact strings the consumers used inline.
+
+### Added
+
+- **`portfolio_common.db.dialect`** — `Dialect` (Protocol) + `SqliteDialect`
+  + `get_dialect(name="sqlite")`. The per-engine SQL fragments consumers
+  need: parameter marker / `placeholders(n)`, `insert` / `insert_or_ignore`
+  / `upsert` (SQLite: `INSERT OR REPLACE`) / `insert_or_ignore_select`,
+  `year_expr` / `year_month_expr` / `week_start_expr` / `week_end_expr`
+  (Monday-start ISO week) / `current_date_expr` (UTC), `group_concat`,
+  `excludes_bare_digit` (`NOT GLOB '[0-9]'`), `autoincrement_pk`. Pure
+  string builder — identifier safety stays the caller's job via `Allowlist`.
+- **`Database.connect_url(url, **kw)`** — opens a filesystem path, a `file:`
+  URI, or a `sqlite:///path` URL (scheme dispatch; `"D:/x"` is a path, not a
+  `d:` URL; unknown `scheme://` raises). Always `uri=True` so a later
+  read-only `ATTACH` is honored. The one connect entry point a consumer's
+  `connect()` should call.
+- **`Database.table_columns` / `table_exists` / `ensure_columns` /
+  `create_schema` / `copy_row_lean`** — runtime schema introspection and
+  DDL, so consumers stop hand-writing `PRAGMA table_info` / `executescript`
+  / cross-schema `INSERT ... SELECT`.
+- **`portfolio_common.db.Row`** (alias for `sqlite3.Row`) + **`RowLike`**
+  (Protocol) — the row type consumers annotate with, and the mapping +
+  positional + `dict(row)` access contract any future engine's row factory
+  must meet. This hybrid requirement is the main constraint the
+  "swap in one place" promise puts on a non-SQLite engine.
+- **`portfolio_common.db.two_store`** — `connect_two_store(primary,
+  secondary, *, alias="source", factory=TwoTierDatabase, **connect_kwargs)`
+  and `TwoTierDatabase` (tracks `read_schema`). The generic form of
+  `portfolio-nlp`'s two-tier SOURCE/RESULTS attach; owns the `"main"` /
+  attached-alias literals and the same-file short-circuit.
+
+### Changed
+
+- `news_export.connect_readonly` now delegates to `connect_two_store`
+  (identical behaviour, same `(db, "source"|"main")` return; the object is
+  now a `TwoTierDatabase`, still a `Database`).
+  `news_export.fetch_processed_articles` return type is now `list[Row]` — no
+  SQL change.
+- Package docstrings no longer describe the engine as immutably SQLite.
+
+### Compatibility
+
+Additive. Every pre-1.2 public name, signature, and return shape is
+preserved; `Row` is still `sqlite3.Row`. v1.0.0 / v1.1.0 consumers are
+unaffected until they choose to adopt the seam.
+
 ## v1.1.0 — `news_export`: one shared read contract, not a re-merge
 
 Adds `portfolio_common.news_export` (`connect_readonly` +

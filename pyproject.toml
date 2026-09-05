@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "portfolio-common"
-version = "1.1.0"
-description = "The single SQLite connection engine (Database), injection-safe query-building primitives (in_clause, Allowlist), and the shared news_export read contract, across the Portfolio Thesis repos"
+version = "1.2.0"
+description = "The shared database engine (Database + Dialect seam, swappable in one place), injection-safe query-building primitives (in_clause, Allowlist), and the shared news_export read contract, across the Portfolio Thesis repos"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = []
