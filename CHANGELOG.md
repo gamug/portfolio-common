@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.2.1 — more of the engine seam, for `-financial-analysis` / `-data-mining`
+
+`v1.2.0` covered `portfolio-nlp`. Adopting the seam in the other two DB-heavy
+consumers needs a few more pieces; all additive.
+
+### Added
+
+- **`Dialect.upsert(..., update=[...], do_nothing=True)`** — the default is
+  still `INSERT OR REPLACE` (SQLite-only whole-row replace). Passing
+  `update=[cols]` emits `INSERT INTO ... ON CONFLICT (conflict) DO UPDATE SET
+  c = excluded.c` (portable in-place update of the named columns); passing
+  `do_nothing=True` emits `... ON CONFLICT (conflict) DO NOTHING`. The
+  portable call sites pass one of these explicitly.
+- **`Dialect.json_extract(column, path)`** / **`Dialect.json_each(expr)`** —
+  SQLite JSON1 fragments, for view definitions that reach into JSON columns.
+- **`Database.relation_exists(name)`** / **`relation_kind(name)`**
+  (`"table"`/`"view"`/`None`) — the engine's catalog lookup, replacing
+  hand-written `sqlite_master` queries and the
+  `try: execute(...) except OperationalError` "is this table present in a
+  partial DB" idiom.
+- **`Database.relation_ddl(name)`** — stored `CREATE` text (SQLite
+  `SELECT sql FROM sqlite_master`); a migration-only SQLite-ism.
+- **`Database.schema_version`** (property) / **`set_schema_version(n)`** —
+  wraps `PRAGMA user_version`.
+- **`portfolio_common.db.DatabaseError`** — engine-neutral alias for
+  `sqlite3.OperationalError`, so consumers stop `import sqlite3` for an
+  `except` clause. Prefer `relation_exists` where the real question is
+  existence.
+
+### Compatibility
+
+Additive. Every v1.2.0 signature still works (`upsert` without the new kwargs
+is unchanged). `Row` is still `sqlite3.Row`.
+
 ## v1.2.0 — engine-agnostic seam: consumers stop naming SQLite
 
 Goal: the database engine is known in exactly one place — here. A future
