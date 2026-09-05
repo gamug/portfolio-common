@@ -18,13 +18,14 @@
 from __future__ import annotations
 
 from portfolio_common.db.dialect import Dialect, SqliteDialect, get_dialect
-from portfolio_common.db.engine import Database, Row, RowLike
+from portfolio_common.db.engine import Database, DatabaseError, Row, RowLike
 from portfolio_common.db.safety import Allowlist, in_clause
 from portfolio_common.db.two_store import TwoTierDatabase, connect_two_store
 
 __all__ = [
     "Allowlist",
     "Database",
+    "DatabaseError",
     "Dialect",
     "Row",
     "RowLike",

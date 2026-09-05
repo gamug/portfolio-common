@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "portfolio-common"
-version = "1.2.0"
+version = "1.2.1"
 description = "The shared database engine (Database + Dialect seam, swappable in one place), injection-safe query-building primitives (in_clause, Allowlist), and the shared news_export read contract, across the Portfolio Thesis repos"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

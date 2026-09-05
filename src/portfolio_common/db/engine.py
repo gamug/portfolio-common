@@ -40,7 +40,7 @@ from urllib.parse import urlsplit
 
 from portfolio_common.db.dialect import Dialect, get_dialect
 
-__all__ = ["Database", "Row", "RowLike"]
+__all__ = ["Database", "DatabaseError", "Row", "RowLike"]
 
 _CONNECT_TIMEOUT_S = 30.0
 DEFAULT_BUSY_TIMEOUT_MS = 30_000
@@ -50,6 +50,13 @@ DEFAULT_BUSY_TIMEOUT_MS = 30_000
 #: ``sqlite3.Row``. A future engine swap re-points this alias; see
 #: :class:`RowLike` for the access contract it must keep.
 Row = sqlite3.Row
+
+#: The engine-neutral exception type for a statement that failed against the
+#: database (a missing table/column, a locked file, bad SQL, ...). Today it
+#: *is* ``sqlite3.OperationalError``; catch this instead of importing
+#: ``sqlite3`` yourself, and prefer :meth:`Database.relation_exists` over a
+#: ``try/except`` where you're really only asking "does this table exist".
+DatabaseError = sqlite3.OperationalError
 
 
 @runtime_checkable
@@ -299,6 +306,43 @@ class Database:
 
     def table_exists(self, table: str, *, schema: str | None = None) -> bool:
         return bool(self.table_columns(table, schema=schema))
+
+    def relation_exists(self, name: str) -> bool:
+        """Whether a table **or view** named *name* exists. Prefer this over
+        ``try: conn.execute(...) except DatabaseError`` at call sites whose
+        real question is "is this relation present in a partial database"."""
+        return self.relation_kind(name) is not None
+
+    def relation_kind(self, name: str) -> str | None:
+        """``"table"`` / ``"view"`` / ``None`` for *name* -- the engine's
+        catalog lookup, replacing hand-written ``sqlite_master`` queries."""
+        row = self._conn.execute(
+            "SELECT type FROM sqlite_master WHERE name = ? AND type IN ('table', 'view') LIMIT 1",
+            (name,),
+        ).fetchone()
+        return row[0] if row is not None else None
+
+    def relation_ddl(self, name: str) -> str | None:
+        """The stored ``CREATE`` text for table/view *name*, or ``None``. A
+        SQLite-ism (``SELECT sql FROM sqlite_master``) that migration code
+        uses to gate CHECK-constraint changes; a non-SQLite migration path
+        would not use it."""
+        row = self._conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = ? LIMIT 1", (name,)
+        ).fetchone()
+        return row[0] if row is not None else None
+
+    @property
+    def schema_version(self) -> int:
+        """The database's schema-version counter (SQLite ``PRAGMA
+        user_version``). Consumers that track their schema with a dedicated
+        ``schema_version`` table don't need this."""
+        return int(self._conn.execute("PRAGMA user_version").fetchone()[0])
+
+    def set_schema_version(self, version: int) -> None:
+        if not isinstance(version, int) or version < 0:
+            raise ValueError(f"schema version must be a non-negative int, got {version!r}")
+        self._conn.execute(f"PRAGMA user_version = {version}")
 
     def ensure_columns(
         self, table: str, columns: dict[str, str], *, schema: str | None = None

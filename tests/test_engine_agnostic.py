@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from portfolio_common.db import Database, Row, RowLike
+from portfolio_common.db import Database, DatabaseError, Row, RowLike
 from portfolio_common.db.engine import _split_url
 
 # -- Row --------------------------------------------------------------------
@@ -205,5 +205,56 @@ def test_copy_row_lean_copies_shared_columns_minus_exclude(tmp_path: Path) -> No
         rows = db.execute("SELECT id, ticker FROM main.articles").fetchall()
         assert [tuple(r) for r in rows] == [(7, "MMM")]
         assert "body_text" not in db.table_columns("articles", schema="main")
+    finally:
+        db.close()
+
+
+# -- v1.2.1: relation catalog, schema_version, DatabaseError -------------
+
+
+def test_relation_exists_and_kind(tmp_path: Path) -> None:
+    db = Database.connect(tmp_path / "t.db")
+    try:
+        db.executescript(
+            "CREATE TABLE base (id INTEGER);\nCREATE VIEW v_base AS SELECT id FROM base;"
+        )
+        assert db.relation_kind("base") == "table"
+        assert db.relation_kind("v_base") == "view"
+        assert db.relation_kind("nope") is None
+        assert db.relation_exists("base") is True
+        assert db.relation_exists("v_base") is True
+        assert db.relation_exists("nope") is False
+    finally:
+        db.close()
+
+
+def test_relation_ddl(tmp_path: Path) -> None:
+    db = Database.connect(tmp_path / "t.db")
+    try:
+        db.executescript("CREATE TABLE t (id INTEGER, name TEXT CHECK (name IN ('a', 'b')))")
+        ddl = db.relation_ddl("t")
+        assert ddl is not None and "CHECK (name IN ('a', 'b'))" in ddl
+        assert db.relation_ddl("missing") is None
+    finally:
+        db.close()
+
+
+def test_schema_version_get_set(tmp_path: Path) -> None:
+    db = Database.connect(tmp_path / "t.db")
+    try:
+        assert db.schema_version == 0
+        db.set_schema_version(7)
+        assert db.schema_version == 7
+        with pytest.raises(ValueError, match="non-negative int"):
+            db.set_schema_version(-1)
+    finally:
+        db.close()
+
+
+def test_database_error_is_the_neutral_exception(tmp_path: Path) -> None:
+    db = Database.connect(tmp_path / "t.db")
+    try:
+        with pytest.raises(DatabaseError):
+            db.execute("SELECT 1 FROM table_that_does_not_exist")
     finally:
         db.close()

@@ -59,6 +59,7 @@ class Dialect(Protocol):
         *,
         conflict: Sequence[str],
         update: Sequence[str] | None = None,
+        do_nothing: bool = False,
     ) -> str: ...
     def insert_or_ignore_select(
         self, dest: str, columns: Sequence[str], source: str, where: str
@@ -74,6 +75,8 @@ class Dialect(Protocol):
     # -- misc fragments ---------------------------------------------------
     def group_concat(self, expr: str, separator: str) -> str: ...
     def excludes_bare_digit(self, col: str) -> str: ...
+    def json_extract(self, column: str, path: str) -> str: ...
+    def json_each(self, expr: str) -> str: ...
 
 
 class SqliteDialect:
@@ -110,15 +113,41 @@ class SqliteDialect:
         *,
         conflict: Sequence[str],
         update: Sequence[str] | None = None,
+        do_nothing: bool = False,
     ) -> str:
-        """SQLite: ``INSERT OR REPLACE`` -- replaces the whole row on any
-        PK/UNIQUE conflict, so *conflict* / *update* are advisory here (they
-        carry the intent a future ``ON CONFLICT (...) DO UPDATE SET ...``
-        dialect needs). *conflict* must still be non-empty: a call site that
-        can't name its conflict target is a bug."""
+        """An INSERT that resolves a conflict on *conflict* (a non-empty
+        PK/UNIQUE column list -- a call site that can't name its target is a
+        bug):
+
+        * default -- ``INSERT OR REPLACE INTO ...``: whole-row replace
+          (delete + reinsert). Fine for single-row-per-key result tables
+          with no triggers/cascades on them.
+        * ``update=[cols]`` -- ``INSERT INTO ... ON CONFLICT (conflict) DO
+          UPDATE SET c = excluded.c`` for each *c* in *update*: an in-place
+          update of just those columns (fires no delete). Pass the columns
+          that should be overwritten on conflict.
+        * ``do_nothing=True`` -- ``INSERT INTO ... ON CONFLICT (conflict) DO
+          NOTHING``: keep the existing row.
+
+        ``ON CONFLICT`` is SQLite (3.24+) and PostgreSQL syntax; ``INSERT OR
+        REPLACE`` is SQLite-only, which is why the portable call sites pass
+        *update* / *do_nothing* explicitly.
+        """
         if not conflict:
             raise ValueError("upsert() requires a non-empty `conflict` column list")
-        return self._insert("INSERT OR REPLACE", table, columns)
+        if update is not None and do_nothing:
+            raise ValueError("upsert(): pass `update` or `do_nothing`, not both")
+        if update is None and not do_nothing:
+            return self._insert("INSERT OR REPLACE", table, columns)
+        head = self._insert("INSERT", table, columns)
+        target = ", ".join(conflict)
+        if do_nothing:
+            return f"{head} ON CONFLICT ({target}) DO NOTHING"
+        assert update is not None  # guarded above: neither-branch and both-branch handled
+        assignments = ", ".join(f"{c} = excluded.{c}" for c in update)
+        if not assignments:
+            raise ValueError("upsert(update=[...]) requires a non-empty column list")
+        return f"{head} ON CONFLICT ({target}) DO UPDATE SET {assignments}"
 
     def insert_or_ignore_select(
         self, dest: str, columns: Sequence[str], source: str, where: str
@@ -159,6 +188,21 @@ class SqliteDialect:
         ``GLOB '[0-9]'`` only matches one character, so multi-digit and
         alphanumeric values pass."""
         return f"{col} NOT GLOB '[0-9]'"
+
+    def json_extract(self, column: str, path: str) -> str:
+        """Value at JSON *path* (e.g. ``'$.score_weights'``) inside the JSON
+        held in *column*. SQLite JSON1 / PostgreSQL both spell it
+        ``json_extract`` here, though a PG dialect would more likely emit the
+        ``->>`` / ``jsonb_path_query`` form."""
+        if "'" in path:
+            raise ValueError("json_extract() path must not contain a single quote")
+        return f"json_extract({column}, '{path}')"
+
+    def json_each(self, expr: str) -> str:
+        """A table-valued ``json_each(<expr>)`` for ``FROM ..., json_each(...)``
+        iteration over a JSON array/object. SQLite JSON1; a PG dialect emits
+        ``jsonb_array_elements`` / ``jsonb_each``."""
+        return f"json_each({expr})"
 
 
 _SQLITE_DIALECT = SqliteDialect()

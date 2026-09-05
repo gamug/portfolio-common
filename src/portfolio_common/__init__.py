@@ -17,6 +17,22 @@ that owns it. See ``business_folders/README.md`` and ``CHANGELOG.md``
 
 from __future__ import annotations
 
-from portfolio_common.db import Allowlist, Database, Dialect, Row, get_dialect, in_clause
+from portfolio_common.db import (
+    Allowlist,
+    Database,
+    DatabaseError,
+    Dialect,
+    Row,
+    get_dialect,
+    in_clause,
+)
 
-__all__ = ["Allowlist", "Database", "Dialect", "Row", "get_dialect", "in_clause"]
+__all__ = [
+    "Allowlist",
+    "Database",
+    "DatabaseError",
+    "Dialect",
+    "Row",
+    "get_dialect",
+    "in_clause",
+]
