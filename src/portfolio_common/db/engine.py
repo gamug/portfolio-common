@@ -11,9 +11,20 @@ domain module.
 
 :class:`Database` wraps a ``sqlite3.Connection`` by composition rather than
 subclassing it. A domain that needs extra per-connection state (see the
-two-tier SOURCE/RESULTS attach tracking in ``business_folders/news_nlp``)
-subclasses :class:`Database` itself and gets ordinary Python attributes for
-free -- no ``sqlite3.Connection`` subclassing trick required.
+two-tier SOURCE/RESULTS attach tracking in
+:mod:`portfolio_common.db.two_store`) subclasses :class:`Database` itself and
+gets ordinary Python attributes for free -- no ``sqlite3.Connection``
+subclassing trick required.
+
+The engine is meant to be swappable in *one* place. Consumers get the
+engine-specific SQL fragments they need from :attr:`Database.dialect` (see
+:mod:`portfolio_common.db.dialect`), open connections through
+:meth:`Database.connect_url` (a path *or* a ``scheme://`` URL), and do
+runtime schema introspection through :meth:`Database.table_columns` /
+:meth:`Database.table_exists` / :meth:`Database.ensure_columns` rather than
+writing ``PRAGMA`` themselves. ``Row`` is the row type they annotate with --
+today an alias for ``sqlite3.Row``; :class:`RowLike` is the contract any
+future engine's row factory has to meet.
 """
 
 from __future__ import annotations
@@ -24,12 +35,38 @@ import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar, runtime_checkable
+from urllib.parse import urlsplit
 
-__all__ = ["Database"]
+from portfolio_common.db.dialect import Dialect, get_dialect
+
+__all__ = ["Database", "Row", "RowLike"]
 
 _CONNECT_TIMEOUT_S = 30.0
 DEFAULT_BUSY_TIMEOUT_MS = 30_000
+
+#: The row type consumers annotate query results with. An alias, not a
+#: subclass -- today every :class:`Database` is SQLite, so this *is*
+#: ``sqlite3.Row``. A future engine swap re-points this alias; see
+#: :class:`RowLike` for the access contract it must keep.
+Row = sqlite3.Row
+
+
+@runtime_checkable
+class RowLike(Protocol):
+    """What a row object must support so the shared query layers stay
+    engine-agnostic: mapping access (``row["col"]``), positional access and
+    tuple-unpacking (``row[0]``, ``a, b = row``), and ``dict(row)`` (needs
+    ``keys()``). ``sqlite3.Row`` satisfies all of it; a non-SQLite engine
+    would need a hybrid row factory, not psycopg's dict-only or tuple-only
+    default -- this is the main constraint the "swap in one place" promise
+    puts on a future engine."""
+
+    def __getitem__(self, key: int | str) -> Any: ...
+    def __iter__(self) -> Iterator[Any]: ...
+    def keys(self) -> Sequence[str]: ...
+    def __len__(self) -> int: ...
+
 
 # ATTACH/DETACH cannot bind the alias as a `?` parameter (SQLite only allows
 # parameterizing values, never identifiers) -- this checks it is at least
@@ -50,14 +87,89 @@ _ATTACH_FAILED_MSG = "Could not ATTACH {path} read-only (mode=ro) as {alias!r}: 
 
 T = TypeVar("T", bound="Database")
 
+# Registered URL schemes for connect_url(). Only "sqlite" today -- a future
+# engine registers its own connector here and nothing else in this repo (or
+# any consumer) has to learn a new connect call.
+_KNOWN_SCHEMES = ("sqlite",)
+
+
+def _split_qualified(name: str) -> tuple[str | None, str]:
+    """``"main.articles"`` -> ``("main", "articles")``; ``"articles"`` ->
+    ``(None, "articles")``."""
+    if "." in name:
+        schema, _, table = name.partition(".")
+        return schema, table
+    return None, name
+
+
+def _split_url(url: str | os.PathLike[str]) -> tuple[str, str]:
+    """``(scheme, target)`` for :meth:`Database.connect_url`.
+
+    A value is a **filesystem path** (scheme ``"sqlite"``, target = the path
+    text) unless it is a ``file:`` URI (handed through to SQLite as-is) or a
+    ``scheme://...`` URL for a known engine. ``"D:/thesis/data/nlp.db"`` is a
+    path, not a ``d:`` URL -- a single-letter scheme without ``://`` is a
+    Windows drive. An unknown ``scheme://`` raises rather than being opened
+    as a weirdly-named file.
+    """
+    if isinstance(url, os.PathLike):
+        return "sqlite", os.fspath(url)
+    text = str(url)
+    if text.startswith("file:"):
+        return "sqlite", text  # a SQLite file: URI -- hand through untouched
+    if text.startswith("sqlite:///"):
+        # SQLAlchemy-style: sqlite:///rel.db -> rel.db ; sqlite:////abs -> /abs ;
+        # sqlite:///D:/win -> D:/win. Everything after the fixed prefix is the path.
+        return "sqlite", text[len("sqlite:///") :]
+    scheme = urlsplit(text).scheme.lower()
+    if "://" in text and len(scheme) > 1 and scheme not in _KNOWN_SCHEMES:
+        raise ValueError(
+            f"unsupported database URL scheme {scheme!r}: "
+            f"known schemes are {sorted((*_KNOWN_SCHEMES, 'file'))}"
+        )
+    if scheme == "sqlite" and "://" in text:  # sqlite://host/path -- rare, take the remainder
+        return "sqlite", text.split("://", 1)[1]
+    # bare path, Windows drive letter ("D:/..."), or relative path
+    return "sqlite", text
+
 
 class Database:
-    """One SQLite connection, opened and configured through :meth:`connect`."""
+    """One SQLite connection, opened and configured through :meth:`connect`
+    or :meth:`connect_url`."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, *, dialect: Dialect | None = None) -> None:
         self._conn = conn
+        self._dialect: Dialect = dialect or get_dialect("sqlite")
+        # copy_row_lean() resolves a column-intersection per (dest, source,
+        # exclude) once and reuses it -- a two-tier pipeline calls it once
+        # per processed row and the column set never changes mid-connection.
+        self._lean_cols_cache: dict[tuple[str, str, tuple[str, ...]], list[str]] = {}
+
+    @property
+    def dialect(self) -> Dialect:
+        """The engine-specific SQL fragments for this connection (see
+        :mod:`portfolio_common.db.dialect`)."""
+        return self._dialect
 
     # -- connecting -------------------------------------------------------
+
+    @classmethod
+    def connect_url(cls: type[T], url: str | os.PathLike[str], **kwargs: Any) -> T:
+        """Open *url* -- a filesystem path, a ``file:`` URI, or a
+        ``sqlite:///path`` URL -- with the shared pragma policy.
+
+        The one entry point a consumer's ``connect()`` should call, so that
+        *what engine* a ``DATABASE_URL`` names is decided here, not in each
+        repo's env-resolution code. ``**kwargs`` pass through to
+        :meth:`connect` (``foreign_keys=``, ``wal=``, ``read_only=`` ...).
+        SQLite targets are always opened ``uri=True`` so a later read-only
+        :meth:`attach` on the connection is honored.
+        """
+        scheme, target = _split_url(url)
+        if scheme != "sqlite":  # pragma: no cover - guarded by _split_url today
+            raise ValueError(f"no connector registered for URL scheme {scheme!r}")
+        spec = target if target.startswith("file:") else f"file:{Path(target).as_posix()}"
+        return cls.connect(spec, uri=True, **kwargs)
 
     @classmethod
     def connect(
@@ -163,10 +275,90 @@ class Database:
         """Undo :meth:`attach`. Raises ``sqlite3.OperationalError`` if
         *alias* isn't currently attached -- callers that attach
         conditionally should track that themselves (see
-        ``business_folders/news_nlp``'s ``articles_rel`` state)."""
+        :class:`portfolio_common.db.two_store.TwoTierDatabase`)."""
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid DETACH alias: {alias!r}")
         self._conn.execute(f"DETACH DATABASE {alias}")
+
+    # -- schema introspection & DDL --------------------------------------
+
+    def table_columns(self, table: str, *, schema: str | None = None) -> list[str]:
+        """Column names of *table* (optionally in an attached *schema*), in
+        definition order. Empty list if the table does not exist -- so this
+        doubles as an existence check (see :meth:`table_exists`). Replaces
+        hand-written ``PRAGMA table_info`` at consumer call sites."""
+        if not _IDENTIFIER_RE.match(table):
+            raise ValueError(f"invalid table name: {table!r}")
+        if schema is not None:
+            if not _IDENTIFIER_RE.match(schema):
+                raise ValueError(f"invalid schema name: {schema!r}")
+            cur = self._conn.execute(f"PRAGMA {schema}.table_info({table})")
+        else:
+            cur = self._conn.execute(f"PRAGMA table_info({table})")
+        return [row[1] for row in cur]
+
+    def table_exists(self, table: str, *, schema: str | None = None) -> bool:
+        return bool(self.table_columns(table, schema=schema))
+
+    def ensure_columns(
+        self, table: str, columns: dict[str, str], *, schema: str | None = None
+    ) -> None:
+        """Add each ``name -> column-definition`` in *columns* that *table*
+        does not already have (``ALTER TABLE ... ADD COLUMN``). No-op if
+        *table* is absent -- callers that need the table created should do
+        that first. Idempotent; safe to run on every startup. The column
+        *definitions* are trusted caller literals (e.g.
+        ``"INTEGER NOT NULL DEFAULT 0"``); the names are identifier-checked."""
+        existing = set(self.table_columns(table, schema=schema))
+        if not existing:
+            return
+        qualified = f"{schema}.{table}" if schema is not None else table
+        for name, definition in columns.items():
+            if not _IDENTIFIER_RE.match(name):
+                raise ValueError(f"invalid column name: {name!r}")
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE {qualified} ADD COLUMN {name} {definition}")
+
+    def create_schema(self, ddl: str) -> None:
+        """Run a multi-statement DDL script. On SQLite this is
+        ``executescript`` (implicit ``COMMIT``, no parameter binding, split
+        on ``;``). A future engine owns its own multi-statement strategy
+        here, so consumers' ``init_schema`` never has to care."""
+        self._conn.executescript(ddl)
+
+    def copy_row_lean(
+        self,
+        dest: str,
+        source: str,
+        *,
+        key: str,
+        key_value: Any,
+        exclude: Sequence[str] = (),
+    ) -> None:
+        """``INSERT OR IGNORE`` the row with ``{key} = {key_value}`` from
+        *source* into *dest*, using the columns the two tables share minus
+        *exclude*, in *source* definition order. *dest* / *source* are
+        schema-qualified (``"main.articles"`` / ``"source.articles"``). Used
+        by the two-tier pipeline to keep the RESULTS store's lean ``articles``
+        row present before a result-table write references it. No-op-safe to
+        repeat (``INSERT OR IGNORE``)."""
+        cache_key = (dest, source, tuple(exclude))
+        cols = self._lean_cols_cache.get(cache_key)
+        if cols is None:
+            dest_schema, dest_table = _split_qualified(dest)
+            src_schema, src_table = _split_qualified(source)
+            dest_cols = set(self.table_columns(dest_table, schema=dest_schema))
+            excluded = set(exclude)
+            cols = [
+                c
+                for c in self.table_columns(src_table, schema=src_schema)
+                if c in dest_cols and c not in excluded
+            ]
+            self._lean_cols_cache[cache_key] = cols
+        sql = self._dialect.insert_or_ignore_select(
+            dest, cols, source, f"{key} = {self._dialect.placeholder}"
+        )
+        self._conn.execute(sql, (key_value,))
 
     # -- statement execution ------------------------------------------------
 

@@ -29,10 +29,8 @@ push arbitrary news_nlp reads.
 from __future__ import annotations
 
 import os
-import sqlite3
-from pathlib import Path
 
-from portfolio_common.db import Allowlist, Database
+from portfolio_common.db import Allowlist, Database, Row, connect_two_store
 
 __all__ = ["connect_readonly", "fetch_processed_articles"]
 
@@ -56,19 +54,18 @@ def connect_readonly(
     for its ``_ensure_article_row`` lean-upsert), a pure reader has nothing
     to track across calls -- the caller just threads the returned schema
     name into :func:`fetch_processed_articles`.
+
+    A thin shape over :func:`portfolio_common.db.connect_two_store` (the
+    generic writable-primary + read-only-attached-secondary open), with the
+    argument order and ``(db, "source"|"main")`` return this contract's two
+    consumers already expect.
     """
-    results_path = Path(results_db)
-    source_path = Path(source_db)
-    db = Database.connect(f"file:{results_path.as_posix()}", uri=True)
-    if source_path.resolve() == results_path.resolve():
-        return db, "main"
-    db.attach(source_path, "source", read_only=True)
-    return db, "source"
+    return connect_two_store(results_db, source_db, alias="source")
 
 
 def fetch_processed_articles(
     db: Database, articles_rel: str, limit: int | None = None
-) -> list[sqlite3.Row]:
+) -> list[Row]:
     """Every successfully-fetched article that has both a sentiment and a
     category result, as one flat row per article: ``id, ticker, pub_date,
     fetched_at, body_text, positive, negative, sent_processed_at, cat_label,
