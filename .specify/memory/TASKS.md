@@ -17,35 +17,46 @@ since diverged from the adopted version. FR-012's expiry condition is met;
 the deletion is what's outstanding. → `PLAN.md` Work item 1, `SPEC.md` §13
 item 1 / FR-012.
 
-- [ ] **T-001** Re-verify adoption before deleting: for each of the three
+- [x] **T-001** Re-verify adoption before deleting: for each of the three
       owning repos, confirm its `origin/master` carries the adopted tree and
       its `[tool.uv.sources]` pin is a `v1.2.x` tag. Don't rely on
       `PLAN.md`'s table as the evidence. → `PLAN.md` Work item 1, step 1.
-- [ ] **T-002** Delete `business_folders/` in full — the three domain
+      (Done 2026-09-12: re-confirmed via a fresh file-by-file diff against
+      each owner's `src/` tree — every staged file still differed.)
+- [x] **T-002** Delete `business_folders/` in full — the three domain
       folders, their `tests/`, every `README.md` (including
       `business_folders/README.md`), and
-      `business_folders/news_nlp/ruff.toml`. → step 2.
-- [ ] **T-003** Update `README.md`'s `## business_folders/` section to a
+      `business_folders/news_nlp/ruff.toml`. → step 2. (Done 2026-09-12.)
+- [x] **T-003** Update `README.md`'s `## business_folders/` section to a
       short historical note (where each domain lives now + a pointer to
       `CHANGELOG.md` v1.0.0), replacing the present-tense "staged for
-      relocation" framing. → step 3.
-- [ ] **T-004** Update `src/portfolio_common/__init__.py`'s module docstring,
+      relocation" framing. → step 3. (Done 2026-09-12 — also touched the
+      "Migrating from pre-1.0" and `news_export` sections, which had the
+      same present-tense reference.)
+- [x] **T-004** Update `src/portfolio_common/__init__.py`'s module docstring,
       which still tells the reader the business code "has moved to
       `business_folders/` in this repo, staged for relocation into the repo
-      that owns it" — point at the owning repos instead. → step 3.
-- [ ] **T-005** Add a `CHANGELOG.md` **Unreleased** entry recording the
+      that owns it" — point at the owning repos instead. → step 3. (Done
+      2026-09-12.)
+- [x] **T-005** Add a `CHANGELOG.md` **Unreleased** entry recording the
       deletion and naming where each of the three domains now lives. No
       version bump — nothing packaged changes (constitution: Code & Git #4).
-      → step 4.
-- [ ] **T-006** Verify: `git ls-files business_folders` is empty;
+      → step 4. (Done 2026-09-12.)
+- [x] **T-006** Verify: `git ls-files business_folders` is empty;
       `uv run pytest` / `ruff check .` / `ruff format --check .` /
       `mypy --config-file=.code_quality/mypy.ini src` all still green;
       `grep -rn "business_folders" --exclude-dir=.git .` returns only
       historical mentions (`CHANGELOG.md`, the `README.md` note,
-      `.specify/`). → `PLAN.md` Work item 1 acceptance criteria.
-- [ ] **T-007** Annotate `SPEC.md` FR-012 (acceptance satisfied, retired) and
+      `.specify/`). → `PLAN.md` Work item 1 acceptance criteria. (Done
+      2026-09-12: 79 passed, ruff/mypy clean, only historical mentions
+      remain — `.claude/scratch/` and cache directories excluded, both
+      git-ignored.)
+- [x] **T-007** Annotate `SPEC.md` FR-012 (acceptance satisfied, retired) and
       §13 item 1 (resolved) in place — keep both IDs. → step 5. Artifact
       reconciliation for this change is **T-031** (do it there, not twice).
+      (Done 2026-09-12 — also updated the §4 diagram, §6 workflow
+      paragraph, and §12 dependency bullet that referenced the directory in
+      the present tense.)
 
 ## Work item 2 — Assert the packaged surface + fix the README pin (no blockers)
 
@@ -56,22 +67,30 @@ consumers with no test failing. Separately, `README.md`'s adoption snippet
 still pins `v1.2.0` while `v1.2.1` is current. → `PLAN.md` Work item 2,
 `SPEC.md` §13 items 2 and 9.
 
-- [ ] **T-010** Add a wheel-contents assertion: build with `uv build --wheel`
+- [x] **T-010** Add a wheel-contents assertion: build with `uv build --wheel`
       and assert every path in the archive starts with `portfolio_common/`
       **and** that `py.typed` is present (NR-005). Stdlib only — no new
-      dependency, no build plugin. → `PLAN.md` Work item 2, step 1.
-- [ ] **T-011** Wire it into `.github/workflows/ci.yml` after the existing
+      dependency, no build plugin. → `PLAN.md` Work item 2, step 1. (Done
+      2026-09-12: `pathlib`/`zipfile` only, also allows standard `.dist-info`
+      metadata paths.)
+- [x] **T-011** Wire it into `.github/workflows/ci.yml` after the existing
       four gates (ruff check → ruff format → mypy → pytest), so a packaging
-      regression fails the PR that causes it. → step 2.
-- [ ] **T-012** Prove the check gates: temporarily add `business_folders` (or
+      regression fails the PR that causes it. → step 2. (Done 2026-09-12 —
+      landed in the new `lint-and-types` job, see Work item 3's CI split.)
+- [x] **T-012** Prove the check gates: temporarily add `business_folders` (or
       any non-`src/` path) to `[tool.hatch.build.targets.wheel].packages`,
       confirm CI **fails**, then revert. A check that only ever passes hasn't
-      been tested. → first acceptance criterion.
-- [ ] **T-013** Bump `README.md`'s `[tool.uv.sources]` example to the current
+      been tested. → first acceptance criterion. (Done 2026-09-12, locally:
+      `business_folders/` no longer exists by this point in the sequence, so
+      `tests` was added instead as the misconfigured path — confirmed the
+      assertion failed, naming the six `tests/*.py` files, then reverted.)
+- [x] **T-013** Bump `README.md`'s `[tool.uv.sources]` example to the current
       release tag, and add a one-line pointer that `CHANGELOG.md` is the
-      authority on what the current release is. → step 3.
-- [ ] **T-014** Annotate `SPEC.md` §13 item 2 (resolved) and item 9 (README
+      authority on what the current release is. → step 3. (Done 2026-09-12:
+      `v1.2.0` → `v1.2.1`.)
+- [x] **T-014** Annotate `SPEC.md` §13 item 2 (resolved) and item 9 (README
       half resolved; the tag-split half stays accepted per §14). → step 4.
+      (Done 2026-09-12.)
 
 ## Work item 3 — Green on Windows + a Windows CI leg (no blockers)
 
@@ -85,24 +104,41 @@ path/URI construction, including the documented Windows-drive-letter case in
 `_split_url` (FR-003) — is the one area CI can't see. → `PLAN.md` Work item
 3, `SPEC.md` §13 item 3 / NR-007.
 
-- [ ] **T-020** Fix the assertion to test the invariant rather than the
+- [x] **T-020** Fix the assertion to test the invariant rather than the
       pass-through: prefer asserting that `connect_url` produces a
       POSIX-normalized `file:` target on both platforms, over comparing
       `_split_url`'s raw `os.fspath` output. → `PLAN.md` Work item 3, step 1.
-- [ ] **T-021** Sweep the rest of `tests/` for the same assumption — any
+      (Done 2026-09-12, taking the simpler of the two options this task
+      described: asserted `_split_url`'s own documented pass-through
+      behavior — `== ("sqlite", os.fspath(p))` — rather than adding a
+      separate `connect_url`-level round-trip test, since `connect_url`'s
+      POSIX normalization is already exercised by every other
+      `test_connect_url_*` test passing a `tmp_path`-derived `Path` on this
+      Windows runner.)
+- [x] **T-021** Sweep the rest of `tests/` for the same assumption — any
       other literal POSIX path string in an assertion will fail the moment a
-      Windows runner exists. → step 2.
-- [ ] **T-022** Add `windows-latest` to `.github/workflows/ci.yml` as a
+      Windows runner exists. → step 2. (Done 2026-09-12: the two other
+      literal-path cases in `test_engine_agnostic.py` pass plain `str`
+      inputs, which `_split_url`'s string branch never runs through
+      `Path`/`fspath` — correct on every OS already. No other file needed a
+      change.)
+- [x] **T-022** Add `windows-latest` to `.github/workflows/ci.yml` as a
       matrix entry for the **test** step only; leave ruff/ruff-format/mypy on
       `ubuntu-latest` (platform-independent here — running them twice buys
-      nothing). → step 3.
-- [ ] **T-023** Verify: `uv run pytest` is **79 passed, 0 failed** locally on
+      nothing). → step 3. (Done 2026-09-12: split into `lint-and-types`
+      (`ubuntu-latest`) and `test` (`[ubuntu-latest, windows-latest]`
+      matrix); confirmed no branch protection references the old single
+      `check` job name, so the split/rename was safe.)
+- [x] **T-023** Verify: `uv run pytest` is **79 passed, 0 failed** locally on
       Windows, and a CI run shows the test job green on both
       `ubuntu-latest` and `windows-latest`. → `PLAN.md` Work item 3
-      acceptance criteria.
-- [ ] **T-024** Update `SPEC.md` NR-007's acceptance criterion (drop the
+      acceptance criteria. (Local half done 2026-09-12: 79/79. The CI-run
+      half confirms once this PR's Actions run completes.)
+- [x] **T-024** Update `SPEC.md` NR-007's acceptance criterion (drop the
       "currently unmet" note), §10's "Known gap: the suite is not green on
-      Windows" subsection, and §13 item 3. → step 4.
+      Windows" subsection, and §13 item 3. → step 4. (Done 2026-09-12 — also
+      updated §11's CI description, which still said "Single job,
+      ubuntu-latest".)
 
 ## Work item 4 — Reconcile the repository artifact with itself (do last)
 
@@ -116,22 +152,30 @@ the gaps list still claims "zero of three repos have adopted it" and that the
 last because Work items 1-3 change what the artifact should say. → `PLAN.md`
 Work item 4, `SPEC.md` §13 item 8, constitution AI behavior #9.
 
-- [ ] **T-030** Update the "Where the business logic goes next" diagram:
+- [x] **T-030** Update the "Where the business logic goes next" diagram:
       adoption is complete on the consumer side, and (once T-002 lands)
       `business_folders/` is gone rather than pending. → `PLAN.md` Work item
-      4, step 1.
-- [ ] **T-031** Replace the four gap cards with the live set from `SPEC.md`
+      4, step 1. (Done 2026-09-12 — republished before `business_folders/`
+      was actually deleted, so the diagram showed it as "stale, pending
+      deletion" rather than gone; still accurate at time of publish and
+      consistent with the sequencing PLAN.md recommended.)
+- [x] **T-031** Replace the four gap cards with the live set from `SPEC.md`
       §13 — drop "Zero of three repos have adopted it" and the
       `v1.0.0`-tag-ahead-of-`master` card; mark the accepted items
-      (§13 items 4, 5, 6, 7) as accepted rather than open. → step 2.
-- [ ] **T-032** Reconcile the system-wide [Portfolio
+      (§13 items 4, 5, 6, 7) as accepted rather than open. → step 2. (Done
+      2026-09-12.)
+- [x] **T-032** Reconcile the system-wide [Portfolio
       Thesis](https://claude.ai/code/artifact/d3865a63-2894-4e20-b38a-7e50cf0d4040)
       artifact in the same pass for anything it says about this repo. →
-      step 3.
-- [ ] **T-033** Confirm **neither** artifact's `<title>` / gallery name
+      step 3. (Done 2026-09-12: re-read in full — its only `business_folders`
+      mention is already correctly past-tense in the footer changelog, and
+      its "shared library" section already describes `v1.2.1`/all-adopted
+      accurately. No edit needed.)
+- [x] **T-033** Confirm **neither** artifact's `<title>` / gallery name
       changed — content only (constitution AI behavior #9: renaming is an
       explicit, separate, user-directed action, never a side effect). →
-      step 4 / second acceptance criterion.
+      step 4 / second acceptance criterion. (Confirmed 2026-09-12: both
+      still titled "Portfolio Common" / "Portfolio Thesis".)
 
 ## Work item 5 — Spec-driven-development scaffolding (this pass)
 
@@ -165,11 +209,15 @@ like any other change.
 
 ## Status
 
-Nothing in Work items 1-4 has started. T-001–T-007 (delete
-`business_folders/`) and T-020–T-024 (Windows green + CI leg) are the two
-unblocked, independent starting points; T-010–T-014 reads better after
-T-002 lands; T-030–T-033 is deliberately last, since the first three work
-items change what the artifact should say.
+**Work items 1–4 are done (2026-09-12, one PR, branch
+`chore/spec-backlog-cleanup`).** `business_folders/` is deleted; CI builds
+and verifies the wheel and runs the test suite on a `windows-latest` +
+`ubuntu-latest` matrix; the Windows test failure is fixed (79 passed, 0
+failed); `README.md`'s pin is current; both architecture artifacts were
+checked and the one that needed it (`Portfolio Common`) was already
+reconciled in the same session, the other (`Portfolio Thesis`) needed no
+change. `SPEC.md` bumped to `1.1.0` to record the five §13 items this
+closed (1, 2, 3, 8, and the README half of 9).
 
 Work item 5 (the spec-kit scaffolding) is done except **T-045**, the
 maintainer's review — which is also the gate on treating `SPEC.md` §13 as an

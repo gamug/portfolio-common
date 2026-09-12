@@ -5,6 +5,7 @@ and the Row type.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -53,7 +54,12 @@ def test_split_url_treats_plain_and_sqlite_values_as_sqlite_paths(
 
 
 def test_split_url_accepts_pathlike() -> None:
-    assert _split_url(Path("/x/y.db")) == ("sqlite", "/x/y.db")
+    # A PathLike target is passed through via os.fspath, not string-literal
+    # matched -- on Windows that's backslash-separated; connect_url (not
+    # _split_url) is what normalizes to POSIX form before handing the
+    # target to SQLite (see its Path(target).as_posix() call).
+    p = Path("/x/y.db")
+    assert _split_url(p) == ("sqlite", os.fspath(p))
 
 
 def test_split_url_rejects_unknown_scheme() -> None:

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- **`business_folders/`** — the `v1.0.0` staging area for the three domains
+  extracted out of this repo. All three owning repos adopted their folder
+  long ago (`portfolio-financial-analysis` → `src/kg_schema/`, `portfolio-nlp`
+  → `src/news_nlp/`, `portfolio-data-mining` → `src/data_mining/`), and a
+  file-by-file check found every staged file had since diverged from what
+  its owner actually runs — the directory had become a stale second copy,
+  not a handoff in progress. Deleted per its own contract (copy in, then
+  delete). No public API change: `business_folders/` sat outside `src/` and
+  was never packaged.
+
+### Added
+
+- CI now builds the wheel and asserts its contents are `portfolio_common/` +
+  standard metadata only (plus `py.typed`), and runs the test suite on a
+  `windows-latest` matrix leg in addition to `ubuntu-latest`.
+
 ## v1.2.1 — more of the engine seam, for `-financial-analysis` / `-data-mining`
 
 `v1.2.0` covered `portfolio-nlp`. Adopting the seam in the other two DB-heavy

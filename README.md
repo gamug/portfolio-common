@@ -37,8 +37,11 @@ Add a git-pinned dependency (resolved by `uv` via `[tool.uv.sources]`):
 dependencies = ["portfolio-common"]
 
 [tool.uv.sources]
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.2.0" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.2.1" }
 ```
+
+The current release is always the top entry in `CHANGELOG.md` — check there
+before pinning a tag.
 
 For local development against a checkout next to your repo, override the
 source with an editable path:
@@ -48,30 +51,26 @@ source with an editable path:
 portfolio-common = { path = "../portfolio-common", editable = true }
 ```
 
-## `business_folders/`
+## `business_folders/` (historical — deleted)
 
-`business_folders/<repo>/` holds domain code staged for relocation into the
-repo that owns it — `financial_analysis` (→ `portfolio-financial-analysis`),
-`news_nlp` (→ `portfolio-nlp`), `data_mining` (→ `portfolio-data-mining`).
-It is **not** part of the installed `portfolio-common` package (it lives
-outside `src/`, so `hatchling` never packages it) — it exists only until each
-owning repo has pulled its folder in and this repo's copy is deleted. See
-`business_folders/README.md` and each subfolder's own `README.md` for the
-adoption steps, and the `docs/portfolio-common-v1-migration-plan.md` this
-refactor pushed to each of the four consumer repos.
-
-Every query in every `business_folders/*` domain lives in one ordered,
-documented place (a `queries.py` or `queries/` package, per domain) — a
-module-level docstring table of contents lists every query function with a
-one-line purpose, so "what can this domain do to the database" is always one
-file away, and orchestration/business logic never embeds SQL text directly.
+The `v1.0.0` split (below) staged three domains' worth of extracted code —
+`financial_analysis`, `news_nlp`, `data_mining` — in a temporary
+`business_folders/` directory outside `src/` (so `hatchling` never packaged
+it), one per owning repo, for that repo to pull in and this repo's copy to
+then be deleted. All three owners adopted their folder long ago
+(`portfolio-financial-analysis` as `src/kg_schema/`, `portfolio-nlp` as
+`src/news_nlp/`, `portfolio-data-mining` as `src/data_mining/`); the stale
+staging copy here was deleted once every file in it had diverged from what
+its owner actually runs — see `CHANGELOG.md`'s Unreleased entry. Each
+domain's SQL still lives in one ordered, documented `queries.py`/`queries/`
+per domain — that convention travelled with the code, not with this
+directory.
 
 ## `news_export` — the one deliberate exception
 
-`business_folders/news_nlp/` (the full news-NLP domain: schema, write-side
-pipeline helpers, corrections, taxonomy, `sector_summary`) moved out to
-`portfolio-nlp`'s own `src/news_nlp/` per the rule above — one owner, no
-exceptions. `portfolio_common.news_export` is a different case: it's the read
+The full news-NLP domain (schema, write-side pipeline helpers, corrections,
+taxonomy, `sector_summary`) lives solely in `portfolio-nlp`'s own
+`src/news_nlp/` per the rule above — one owner, no exceptions. `portfolio_common.news_export` is a different case: it's the read
 join two *separate* repos need (`portfolio-nlp` writes it,
 `portfolio-knowledge-graph` only reads it), so instead of either repo owning
 a copy the other depends on, or `portfolio-knowledge-graph` carrying a
@@ -86,11 +85,11 @@ adding a second one.
 
 v1.0.0 is a clean break — there is no backward-compatible shim for
 `portfolio_common.db.connect`, `.kg_schema`, `.news_nlp`, `.portfolio`,
-`.universe_history`, or `.errors`. Each consumer repo has its own
-`docs/portfolio-common-v1-migration-plan.md` (pushed there as part of this
-change) describing exactly what to pull in from `business_folders/` and how
-to adopt `Database`/`in_clause`/`Allowlist` for its own SQL. See
-`CHANGELOG.md` for the full rationale.
+`.universe_history`, or `.errors`. Each consumer repo received its own
+`docs/portfolio-common-v1-migration-plan.md` (pushed as part of this change)
+describing what to pull in from the (since-deleted) `business_folders/`
+staging area and how to adopt `Database`/`in_clause`/`Allowlist` for its own
+SQL. See `CHANGELOG.md` for the full rationale.
 
 ## Develop
 

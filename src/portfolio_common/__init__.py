@@ -9,10 +9,12 @@ and the :data:`~portfolio_common.db.engine.Row` type -- never ``import
 sqlite3`` of their own. See ``CHANGELOG.md`` v1.2.0.
 
 Business/domain code that used to live here (kg_schema, news_nlp, the
-urls.db pipeline, the S&P 500 universe helpers) has moved to
-``business_folders/`` in this repo, staged for relocation into the repo
-that owns it. See ``business_folders/README.md`` and ``CHANGELOG.md``
-(v1.0.0) for the migration.
+urls.db pipeline, the S&P 500 universe helpers) moved out to the repo that
+owns each domain: ``portfolio-financial-analysis`` (``src/kg_schema/``),
+``portfolio-nlp`` (``src/news_nlp/``), ``portfolio-data-mining``
+(``src/data_mining/``). See ``CHANGELOG.md`` (v1.0.0 for the split,
+Unreleased for the since-deleted ``business_folders/`` staging copy) for
+the migration.
 """
 
 from __future__ import annotations
