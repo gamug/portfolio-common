@@ -122,7 +122,7 @@ behavior #1).
 | **FR-009** | `in_clause(values)` returns a `(?, ?, …)` group sized to the input, and `Allowlist(*names).check(name)` returns the name or raises `ValueError` — together the **only two sanctioned ways** to build dynamic SQL text anywhere in the system (values bound as parameters, identifiers allowlisted). | `in_clause` sizes to the sequence and is paired with the same values bound at every call site; `Allowlist.check` raises on any name outside the fixed set, supports `in` and iteration, and a `DROP TABLE`-shaped string passed as a value reaches the DB as a literal, never as SQL. |
 | **FR-010** | `connect_two_store(primary, secondary, *, alias="source", factory=TwoTierDatabase, **connect_kwargs)` opens a writable primary and, unless *secondary* resolves to the same file, `ATTACH`es it read-only, returning `(db, read_schema)` where `read_schema` is the attached alias or `"main"`. `TwoTierDatabase` tracks `read_schema` and `detach` is safe whether or not the attach happened. | Same-file input short-circuits to `("main")` with no ATTACH; distinct files return the alias and expose the secondary's tables as `alias.table`, read-only; `detach` on the non-attached case does not raise; the returned object is a `Database` subclass carrying `read_schema`. |
 | **FR-011** | `portfolio_common.news_export` provides `connect_readonly(source_db, results_db)` (a thin shape over `connect_two_store` with the argument order and `(db, "source"\|"main")` return its two consumers expect) and `fetch_processed_articles(db, articles_rel, limit=None)` — the `articles ⋈ article_sentiment ⋈ article_category` join restricted to `fetch_status = 'ok'`, ordered by `id`, as one flat row per article. `articles_rel` is `Allowlist`-checked (`"main"`/`"source"` only) and `limit` is bound, never interpolated. | The join returns exactly the documented columns (`id, ticker, pub_date, fetched_at, body_text, positive, negative, sent_processed_at, cat_label, cat_score, cat_processed_at`); an article missing either result row is absent; a `fetch_status != 'ok'` article is absent; an arbitrary `articles_rel` raises `ValueError`; `limit` caps the row count. |
-| **FR-012** | `business_folders/<domain>/` stages domain code for relocation into the one repo that owns it, with that repo named in its own `README.md`, its own `tests/`, and no import from `src/`. It is **temporary by contract**: once the owning repo has adopted it, the copy here is deleted. | `business_folders/` is outside `src/`, so the built wheel contains only `portfolio_common` (FR-012's acceptance is today unchecked by CI — §13 item 2); each subfolder names its owning repo; **all three owners have now adopted, so the live acceptance criterion for this FR is deletion — see §13 item 1.** |
+| **FR-012** | `business_folders/<domain>/` stages domain code for relocation into the one repo that owns it, with that repo named in its own `README.md`, its own `tests/`, and no import from `src/`. It is **temporary by contract**: once the owning repo has adopted it, the copy here is deleted. | **Resolved (2026-09-12).** All three owners adopted, the staged copy had diverged from every adopted file, and it has now been deleted per its own contract — `git ls-files business_folders` is empty. The wheel-exclusion half of the acceptance criterion is now an active CI assertion (§13 item 2 / NR-005) rather than an unchecked property. |
 
 ### 2.4 Non-functional requirements
 
@@ -132,9 +132,9 @@ behavior #1).
 | **NR-002** | The database engine is named in exactly one place in the system. Inside this repo, `import sqlite3` appears only in `db/engine.py` and `db/two_store.py`; in every consumer repo it appears nowhere at all. | `grep -rn "import sqlite3" src` returns those two files and no others; the same grep over each consumer's `src`/`apps`/`cli` returns nothing (verified by hand in each adoption PR — not yet automated, §13 item 7). |
 | **NR-003** | The test suite is hermetic: no network, no database server, no fixture files checked in — every test builds its SQLite file under `tmp_path`. | `uv run pytest` passes with no outbound connection and no external service; a clean checkout needs only `uv sync`. |
 | **NR-004** | Every name exported from `portfolio_common.__all__` / `portfolio_common.db.__all__` is a cross-repo contract: additive within a MAJOR, removed or redefined only in a MAJOR, and always with a `CHANGELOG.md` compatibility statement (constitution: Code & Git #4-5). | `v1.1.0`, `v1.2.0` and `v1.2.1` are each additive with the CHANGELOG asserting so, and every pre-1.2 signature and return shape still works; `v1.0.0` is the one MAJOR, a clean break with no shim (an `ImportError` on the removed names, by design). |
-| **NR-005** | The package is typed and type-checked: `py.typed` ships so consumers type-check against it, and `mypy` (with `disallow_untyped_defs`/`disallow_untyped_calls`/`warn_return_any`) is clean on `src`. | `uv run mypy --config-file=.code_quality/mypy.ini src` → "no issues found in 7 source files"; `py.typed` is present in the wheel. |
+| **NR-005** | The package is typed and type-checked: `py.typed` ships so consumers type-check against it, and `mypy` (with `disallow_untyped_defs`/`disallow_untyped_calls`/`warn_return_any`) is clean on `src`. | `uv run mypy --config-file=.code_quality/mypy.ini src` → "no issues found in 7 source files"; `py.typed` is present in the wheel — **asserted by CI since 2026-09-12** (`lint-and-types` job: `uv build --wheel` + a wheel-contents check that every path starts with `portfolio_common/` or is standard dist-info, and that `py.typed` is present), not just true by the accident of `business_folders/` sitting outside `src/` (§13 item 2, resolved). |
 | **NR-006** | The "swap the engine in one place" promise has exactly one documented constraint on a future engine: its row factory must satisfy `RowLike` — mapping **and** positional **and** `dict(row)` access. Consumers annotate with `portfolio_common.db.Row`, never `sqlite3.Row`. | `RowLike` is a Protocol covering `__getitem__(int\|str)`, `__iter__`, `keys()`, `__len__`; consumer code annotates `Row`; the constraint is stated in `CHANGELOG.md` v1.2.0 rather than left implicit. (Partially undermined by the `sqlite3`-typed escape hatches — §13 item 4.) |
-| **NR-007** | The library must work on both developer and CI platforms: development happens on Windows, CI runs `ubuntu-latest`. Path handling is therefore POSIX-normalized on the way into SQLite (`Path(target).as_posix()`), not left platform-dependent. | `uv run pytest` is green on **both** Windows and Linux. **Currently unmet**: `test_engine_agnostic.py::test_split_url_accepts_pathlike` asserts a POSIX path string and fails on Windows (78 passed, 1 failed), and CI has no Windows leg to catch it — see §13 item 3. |
+| **NR-007** | The library must work on both developer and CI platforms: development happens on Windows, CI runs both `ubuntu-latest` and `windows-latest`. Path handling is therefore POSIX-normalized on the way into SQLite (`Path(target).as_posix()`), not left platform-dependent. | `uv run pytest` is green on **both** Windows and Linux — **met as of 2026-09-12** (79 passed, 0 failed on both; `test_engine_agnostic.py::test_split_url_accepts_pathlike` now asserts the documented pass-through behavior, `os.fspath`, rather than a hardcoded POSIX string), and CI's `test` job runs a `windows-latest`/`ubuntu-latest` matrix so a regression is caught — see §13 item 3, resolved. |
 
 ## 3. Technology Stack & Architecture Decisions
 
@@ -172,8 +172,9 @@ re-litigated without a constitution amendment:
   `db.connect`/`schema`/`portfolio`/`universe_history`/`errors`/`kg_schema`/
   `news_nlp` names. A consumer bumping to `v1.0.0` gets an immediate
   `ImportError` rather than quietly running against a half-migrated engine.
-- **`business_folders/` is staging, not a fourth shipped module** (FR-012) —
-  outside `src/`, never imported from `src/`, deleted once adopted.
+- **`business_folders/` was staging, not a fourth shipped module** (FR-012) —
+  outside `src/`, never imported from `src/`; deleted 2026-09-12 once all
+  three owners had adopted their copy (§13 item 1, resolved).
 
 ## 4. System Architecture
 
@@ -191,7 +192,6 @@ flowchart TB
     NLP["portfolio-nlp<br/>pin v1.2.0"]
     FA["portfolio-financial-analysis<br/>pin v1.2.1"]
     KG["portfolio-knowledge-graph<br/>pin v1.2.0"]
-    BF["business_folders/ — staging, outside src/<br/>data_mining · financial_analysis · news_nlp"]
 
     ENG --> SQLITE
     TWO --> SQLITE
@@ -203,20 +203,18 @@ flowchart TB
     PC -->|"git tag pin"| NLP
     PC -->|"git tag pin"| FA
     PC -->|"git tag pin"| KG
-    BF -.->|"adopted; copy here now stale (§13 item 1)"| DM
-    BF -.->|"adopted; copy here now stale"| NLP
-    BF -.->|"adopted; copy here now stale"| FA
 ```
 
 **Reading this diagram**: solid arrows are real, current dependencies — the
 four consumer repos each resolve `portfolio-common` through a git tag in
 `[tool.uv.sources]`, and only `engine.py`/`two_store.py` touch `sqlite3`
 (NR-002). `dialect.py` and `safety.py` deliberately have no edge to the
-engine: they build strings. Dashed arrows are the `business_folders/`
-relocation, which has **completed on the consumer side and not on this side**
-— all three owning repos now carry their own copy, so the copies here are
-stale and awaiting deletion (§13 item 1). `portfolio-reports` and
-`portfolio-app` do not exist yet and are not consumers.
+engine: they build strings. `business_folders/` (the v1.0.0 staging area for
+the three extracted domains) is gone from this diagram as of 2026-09-12 — it
+completed its handoff to all three owning repos and was deleted once every
+staged file had diverged from the adopted copy (§13 item 1, resolved).
+`portfolio-reports` and `portfolio-app` do not exist yet and are not
+consumers.
 
 Full detail, with hover tooltips per component: [the repository
 artifact](https://claude.ai/code/artifact/a1a5f985-a6b9-4dd1-8e2d-cc1f0d939e2b)
@@ -309,8 +307,9 @@ cannot replay the log, so the alternative is silently serving stale data.
 
 **`business_folders/` adoption** (FR-012): the owning repo copies its folder
 into its own `src/`, adapts imports, lands its adoption PR — and the copy
-here is then deleted. All three have completed the first half; none has had
-the second half done (§13 item 1).
+here is then deleted. All three owners completed their adoption PR, and the
+deletion half landed 2026-09-12, once every staged file had diverged from
+the adopted copy (§13 item 1, resolved) — the directory no longer exists.
 
 ## 7. Business Logic & Algorithms
 
@@ -438,16 +437,19 @@ getting it slightly differently was the original defect (§1).
   proves a release didn't change behavior; a breaking change here is only
   really verified downstream.
 
-### Known gap: the suite is not green on Windows
+### Resolved gap: the suite is now green on Windows (2026-09-12)
 
-`uv run pytest` on the development platform is **78 passed, 1 failed**:
-`test_engine_agnostic.py::test_split_url_accepts_pathlike` asserts
+`uv run pytest` used to be 78 passed / 1 failed on the development platform:
+`test_engine_agnostic.py::test_split_url_accepts_pathlike` asserted
 `_split_url(Path("/x/y.db")) == ("sqlite", "/x/y.db")`, but `os.fspath` yields
-`\x\y.db` on Windows. The *library* is correct — `connect_url` normalizes with
-`Path(target).as_posix()` before handing the target to SQLite — so this is a
-POSIX-only assertion in the test, not an engine defect. CI runs
-`ubuntu-latest` only and is green. See §13 item 3 / NR-007; fixing it is
-`PLAN.md` Work item 3.
+`\x\y.db` on Windows. The *library* was always correct — `connect_url`
+normalizes with `Path(target).as_posix()` before handing the target to
+SQLite — it was a POSIX-only assertion in the test, not an engine defect.
+Fixed by asserting the documented pass-through (`os.fspath`) instead of a
+hardcoded POSIX string; `uv run pytest` is now 79 passed, 0 failed on both
+platforms, and CI's `test` job runs a `[ubuntu-latest, windows-latest]`
+matrix so this class of regression has coverage going forward. See §13 item
+3 / NR-007 (`PLAN.md` Work item 3, closed).
 
 ## 11. Deployment Procedures
 
@@ -457,9 +459,12 @@ procedure that stands in for deployment:
 
 1. `uv sync` (dev group) and `uv run pre-commit install --hook-type
    pre-commit --hook-type commit-msg --hook-type pre-push`.
-2. CI gate before merge (`.github/workflows/ci.yml`, `master`/PRs): `uv sync`
-   → `ruff check .` → `ruff format --check .` → `mypy --config-file=
-   .code_quality/mypy.ini src` → `pytest -q`. Single job, `ubuntu-latest`.
+2. CI gate before merge (`.github/workflows/ci.yml`, `master`/PRs): two jobs
+   — `lint-and-types` (`ubuntu-latest`: `uv sync` → `ruff check .` →
+   `ruff format --check .` → `mypy --config-file=.code_quality/mypy.ini src`
+   → build the wheel and assert its contents, NR-005) and `test` (a
+   `[ubuntu-latest, windows-latest]` matrix: `uv sync` → `pytest -q`,
+   NR-007).
 3. Bump `[project].version`; add the `CHANGELOG.md` section with an explicit
    compatibility statement; merge.
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`. Never move, re-point or delete
@@ -487,8 +492,9 @@ useful, and a thing to *remove* before opening a PR, since it pins nothing.
   `portfolio-nlp` (§5) — the only place this repo depends on another repo's
   column names. Unversioned and unenforced by choice (§13 item 6).
 - **External services**: none. No network call exists anywhere in `src/`.
-- **Staged, not a dependency**: `business_folders/` — code *for* three
-  consumers, imported by nothing here (FR-012).
+- **Formerly staged, now deleted**: `business_folders/` (FR-012) held code
+  *for* three consumers until each had adopted it; deleted 2026-09-12 once
+  every staged file had diverged from its owner's adopted copy (§13 item 1).
 
 ## 13. Open Questions & Risks
 
@@ -497,29 +503,29 @@ Carried forward from the last recorded architecture review
 and this document's own drafting — resolve or explicitly accept before
 treating a related FR/NR as done:
 
-1. **`business_folders/` has outlived its contract, and every file in it has
-   diverged.** FR-012 says each folder is deleted once its owning repo adopts
-   it. All three have adopted (`portfolio-nlp`'s `src/news_nlp/`,
-   `portfolio-financial-analysis`'s `src/kg_schema/`,
-   `portfolio-data-mining`'s `src/data_mining/`), and a file-by-file
-   comparison against those trees shows **every single staged file now
-   differs** — plus `portfolio-nlp` has grown a whole `news_nlp/eval/`
-   subpackage that has no counterpart here. So this directory is no longer a
-   handoff payload; it is a stale second copy of three repos' domain code,
-   sitting in the dependency all of them pin, where a reader can't tell it
-   isn't current. Deleting it is `PLAN.md` Work item 1.
-2. **Nothing asserts the wheel excludes `business_folders/`.** It works today
-   only because the directory sits outside `src/` and
-   `[tool.hatch.build.targets.wheel].packages` names just
-   `src/portfolio_common` — a future `pyproject.toml` edit could start
-   shipping three repos' business logic to all four consumers with no test
-   failing. (Largely defused by item 1, but the assertion is what makes it
-   stay fixed.)
-3. **The test suite is red on the development platform and CI can't see it**
-   (NR-007, §10): one POSIX-only assertion fails on Windows, and CI runs
-   `ubuntu-latest` only. Cheap to fix, and the missing Windows leg is the more
-   interesting half — path handling is exactly the area where this library is
-   platform-sensitive, and it's the area CI doesn't cover.
+1. ~~**`business_folders/` has outlived its contract, and every file in it
+   had diverged.**~~ **Resolved (2026-09-12).** All three owners had adopted
+   (`portfolio-nlp`'s `src/news_nlp/`, `portfolio-financial-analysis`'s
+   `src/kg_schema/`, `portfolio-data-mining`'s `src/data_mining/`) and every
+   staged file had diverged from its owner's adopted copy; the directory was
+   deleted per its own contract (`PLAN.md` Work item 1, closed). Struck
+   through and kept here, per this document's no-renumbering convention,
+   only so the item number stays stable for anything that already
+   references it.
+2. ~~**Nothing asserts the wheel excludes `business_folders/`.**~~
+   **Resolved (2026-09-12).** CI's `lint-and-types` job now builds the wheel
+   and asserts its contents are `portfolio_common/` plus standard dist-info
+   only, and that `py.typed` is present — verified to actually gate (a
+   deliberate local misconfiguration, adding `tests` to
+   `[tool.hatch.build.targets.wheel].packages`, was confirmed to fail the
+   check before being reverted). `PLAN.md` Work item 2, closed; see NR-005.
+3. ~~**The test suite is red on the development platform and CI can't see
+   it**~~ **Resolved (2026-09-12).** `test_engine_agnostic.py::test_split_url_accepts_pathlike`
+   now asserts `_split_url`'s documented pass-through behavior (`os.fspath`)
+   instead of a hardcoded POSIX string; `uv run pytest` is 79 passed, 0
+   failed on both Windows and Linux. CI's `test` job now runs a
+   `[ubuntu-latest, windows-latest]` matrix, so this class of regression has
+   coverage going forward. `PLAN.md` Work item 3, closed; see NR-007, §10.
 4. **The engine name leaks through the public type surface.** `execute`/
    `executemany`/`executescript` are annotated `-> sqlite3.Cursor`, `.raw`
    returns `sqlite3.Connection`, `Row` *is* `sqlite3.Row`, and
@@ -544,20 +550,26 @@ treating a related FR/NR as done:
    each adoption PR. Nothing in this repo's CI — and nothing in the
    consumers' — asserts it on an ongoing basis, so the property can regress
    silently in any of four repos.
-8. **The repository artifact contradicts itself.** Its header and
-   engine-seam section describe `v1.2.1` with all consumers adopted, while its
-   architecture diagram and "Gaps & risks" section still say "PR #7 open",
-   "zero of three repos have adopted it", and "the `v1.0.0` tag sits ahead of
-   `master`" — all untrue since 2026-09-05. Constitution AI behavior #9
-   requires reconciling it at the close of each effort; a half-updated
-   artifact is worse than a stale one, because the inconsistency is invisible
-   unless you read both sections.
-9. **Consumers are split across two tags with no compatibility test.**
-   `v1.2.0` (nlp, knowledge-graph) and `v1.2.1` (data-mining,
-   financial-analysis) are both live pins, and `README.md`'s
-   "Use it from another repo" example still shows `v1.2.0` while `v1.2.1` is
-   current. Nothing verifies that a future release keeps working for the older
-   pin, and a new reader copying the README pins a release behind.
+8. ~~**The repository artifact contradicts itself.**~~ **Resolved
+   (2026-09-12).** Its header/engine-seam section was current for `v1.2.1`/
+   all-adopted, but its architecture diagram and "Gaps & risks" section
+   still said "PR #7 open", "zero of three repos have adopted it", and "the
+   `v1.0.0` tag sits ahead of `master`" — all untrue since 2026-09-05. Both
+   sections rewritten to match the current rollout state (the staging
+   directory shown as adopted-and-stale rather than pending, and the gaps
+   list replaced with the live set from this section); the system-wide
+   [Portfolio Thesis](https://claude.ai/code/artifact/d3865a63-2894-4e20-b38a-7e50cf0d4040)
+   artifact was re-checked in the same pass and found already consistent
+   (no edit needed there). `PLAN.md` Work item 4, closed. Neither artifact's
+   title changed.
+9. **Consumers are split across two tags; the README pin is fixed, the split
+   itself stays accepted.** `v1.2.0` (nlp, knowledge-graph) and `v1.2.1`
+   (data-mining, financial-analysis) are both live pins — accepted per §14,
+   since both releases are additive and staggered adoption is normal.
+   **The README half is resolved (2026-09-12):** `README.md`'s "Use it from
+   another repo" example now shows `v1.2.1` and points at `CHANGELOG.md` as
+   the authority on the current release, so a new reader no longer copies a
+   pin one release behind.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -617,19 +629,20 @@ boundary of what this project is, not a gap someone forgot to close:
 
 | §13 item | Disposition | Would only matter if |
 |---|---|---|
-| 1 — `business_folders/` stale and adopted everywhere | **Should fix, now** — it's a deletion, and every day it stays it looks more like current code than it is (`PLAN.md` Work item 1) | — (already actionable) |
-| 2 — wheel exclusion unchecked | **Should fix regardless of scope** — one build-and-inspect step in CI; cheap, and it's what keeps item 1 from recurring (`PLAN.md` Work item 2) | — |
-| 3 — suite red on Windows, no Windows CI leg | **Should fix regardless of scope** — a one-line test fix plus a CI matrix entry; the platform-sensitive code is exactly what's uncovered (`PLAN.md` Work item 3) | — |
+| 1 — `business_folders/` stale and adopted everywhere | **Resolved (2026-09-12)** — deleted (`PLAN.md` Work item 1) | — |
+| 2 — wheel exclusion unchecked | **Resolved (2026-09-12)** — CI builds and asserts the wheel's contents, verified to actually gate (`PLAN.md` Work item 2) | — |
+| 3 — suite red on Windows, no Windows CI leg | **Resolved (2026-09-12)** — test fixed, `windows-latest` added to CI's matrix (`PLAN.md` Work item 3) | — |
 | 4 — engine name leaks through type signatures | Accepted; wrapping cursor/connection would add a surface wider than the one it hides | A real non-SQLite engine landed — then this is the first thing it breaks on |
 | 5 — seam unexercised by a second engine | Accepted; an abstraction validated against one implementation is the honest state of it, and inventing a second `Dialect` to prove the first is not a research goal here | SQLite stopped being sufficient for a consumer's workload |
 | 6 — `news_export` contract unversioned | Accepted at this scale; the module is deliberately narrow and its two consumers are in the same hands | A third consumer read it, or the two repos' release cadences decoupled |
 | 7 — NR-002 enforced by hand-grep | Accepted here, but cheap to automate *in each consumer's* CI — which is that repo's call, not this one's | A consumer repo gained contributors who don't know the rule |
-| 8 — repository artifact self-contradictory | **Should fix, now** — constitution AI behavior #9 already requires it (`PLAN.md` Work item 4) | — |
-| 9 — consumers split across tags, stale README pin | **Should fix the README pin** (trivial); the split itself is accepted — staggered adoption is normal, and additive releases are compatible by construction (NR-004) | A release stopped being additive without a MAJOR bump |
+| 8 — repository artifact self-contradictory | **Resolved (2026-09-12)** — both sections rewritten to match the current rollout state; the system-wide artifact checked and already consistent (`PLAN.md` Work item 4) | — |
+| 9 — consumers split across tags, stale README pin | **README half resolved (2026-09-12)**; the tag-split itself stays accepted — staggered adoption is normal, and additive releases are compatible by construction (NR-004) | A release stopped being additive without a MAJOR bump |
 
-Items 1, 2, 3 and 8 are the actionable set — all cheap, none expanding this
-project's scope. Items 4, 5, 6, 7 and the tag-split half of 9 remain permanent
-characteristics of this project as scoped, not queued tasks.
+Items 1, 2, 3, 8 and the README half of 9 were the actionable set and are now
+resolved (2026-09-12) — see `PLAN.md`/`TASKS.md` for the closed work items.
+Items 4, 5, 6, 7 and the tag-split half of 9 remain permanent characteristics
+of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 
@@ -648,4 +661,4 @@ than silently diverging (constitution: Governance).
 | Author | Dovaribi Carupia Yagari | | Universidad Pontificia Bolivariana (UPB) |
 | Reviewer | Camilo Andrés Soto Montoya | | Universidad Pontificia Bolivariana (UPB) |
 
-**Version**: 1.0.0 | **Last Amended**: 2026-09-12
+**Version**: 1.1.0 | **Last Amended**: 2026-09-12
