@@ -86,7 +86,8 @@ stack actually pinned in `pyproject.toml`.
    consumers read before bumping a tag), each
    `business_folders/*/README.md` (per-domain adoption steps), and
    `.specify/` (spec-kit artifacts: this constitution, `SPEC.md`,
-   `PLAN.md`, `TASKS.md`). A new explanation belongs in whichever of those
+   `PLAN.md`, `TASKS.md`, and the work-item `CHANGELOG.md`). A new
+   explanation belongs in whichever of those
    already owns the topic; don't start a `docs/` tree for one file.
 5. **Config lives where its tool expects it, not duplicated.** Ruff:
    `.code_quality/ruff.toml` (root `ruff.toml` only `extend`s it so plain
@@ -182,6 +183,17 @@ stack actually pinned in `pyproject.toml`.
    stable forever, independent of content changes. (See `Artifact` tool
    guidance: title changes are an explicit, separate, user-directed action,
    never a side effect of a content update.)
+10. **Once a Work Item is finished, move the entire work item to
+    `.specify/memory/CHANGELOG.md`.** When every task in a `TASKS.md` work
+    item is checked (or explicitly superseded/moved elsewhere), cut its whole
+    `## Work item N` section — heading, preamble, and every task, verbatim,
+    task IDs unchanged — out of `TASKS.md` and into `CHANGELOG.md`, in the
+    same change that closes it. `TASKS.md` carries only open work, so the
+    spec-driven loop doesn't re-read closed history on every pass;
+    `CHANGELOG.md` is the legacy record, read only when that history is
+    actually needed. Not to be confused with the repo-root `CHANGELOG.md`
+    (Code & Git #5), the package's release/compatibility record for
+    consumers.
 
 ## Executable cmds
 
@@ -286,6 +298,11 @@ git tag vX.Y.Z && git push origin vX.Y.Z
     know about: `v1.0.0` was tagged at the PR #7 branch tip *before* the PR
     merged, so for a while it wasn't reachable from `master`; it is now.
     Tagging ahead of a merge is not the normal path.)
+11. **Always present the PR link at the end of the development.** Whenever
+    a development effort ends in a pushed branch/PR, the final message to
+    the user closes with the PR's full URL (one per repo when the effort
+    spans several), so it can be opened for review directly — never just
+    "PR opened" or a bare number.
 
 ## Governance
 
@@ -305,4 +322,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12
+**Version**: 1.1.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-24
