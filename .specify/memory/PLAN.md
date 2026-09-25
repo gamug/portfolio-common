@@ -69,7 +69,9 @@ Everything else in `SPEC.md` §13 stays exactly as §14 disposed of it —
   bump (constitution: Code & Git #4 — `business_folders/` is unpackaged, so
   deleting it is not a public-API change).
 
-## Work item 1 — Delete `business_folders/`
+## Work item 1 — Delete `business_folders/` — DONE 2026-09-12
+
+**Status: closed** (branch `chore/spec-backlog-cleanup`); tasks in `CHANGELOG.md`.
 
 **Why**: FR-012 gave this directory one job and an expiry condition: stage a
 domain's code until its owning repo adopts it, then be deleted. The first half
@@ -134,7 +136,9 @@ repo's own subsequent work (`portfolio-nlp` adding `news_nlp/eval/`, the
 `v1.2.x` seam adoptions, and so on) — the adopted tree is authoritative by
 definition. Nothing here gets merged back.
 
-## Work item 2 — Assert the packaged surface, and fix the README pin
+## Work item 2 — Assert the packaged surface, and fix the README pin — DONE 2026-09-12
+
+**Status: closed** (branch `chore/spec-backlog-cleanup`); tasks in `CHANGELOG.md`.
 
 **Why**: Two small release-hygiene defects, both one-line-ish, both
 invisible until they bite someone else.
@@ -175,7 +179,9 @@ this library installs a release behind, silently.
 - `README.md`'s pin matches the latest tag.
 - `SPEC.md` §13 items 2 and 9 annotated.
 
-## Work item 3 — Green on Windows, and a CI leg that proves it
+## Work item 3 — Green on Windows, and a CI leg that proves it — DONE 2026-09-12
+
+**Status: closed** (branch `chore/spec-backlog-cleanup`); tasks in `CHANGELOG.md`.
 
 **Why**: `uv run pytest` on the development platform is **78 passed, 1
 failed**. `test_engine_agnostic.py::test_split_url_accepts_pathlike` asserts
@@ -222,7 +228,9 @@ an engine defect. Two things follow, and the second matters more:
 - NR-007 no longer carries a "currently unmet" note; §13 item 3 annotated as
   resolved.
 
-## Work item 4 — Reconcile the repository artifact with itself
+## Work item 4 — Reconcile the repository artifact with itself — DONE 2026-09-12
+
+**Status: closed** (branch `chore/spec-backlog-cleanup`); tasks in `CHANGELOG.md`.
 
 **Why**: Constitution AI behavior #9 requires both architecture artifacts to
 be reconciled at the close of every development effort. The repo artifact
@@ -265,6 +273,9 @@ reader that it's current, so the contradicting sections read as fact.
 - The gaps list matches `SPEC.md` §13 — one source of truth, two renderings.
 
 ## Sequencing
+
+**Work items 1–4 are all done (2026-09-12)** — see `CHANGELOG.md`; the
+sequencing below is kept as the record of how they were ordered.
 
 Work items 1 and 3 are independent of each other and of everything else;
 either can land first. Work item 2 is independent in substance but **reads
