@@ -44,15 +44,7 @@ like any other change.
 
 ## Status
 
-**Work items 1–4 are done (2026-09-12, one PR, branch
-`chore/spec-backlog-cleanup`).** `business_folders/` is deleted; CI builds
-and verifies the wheel and runs the test suite on a `windows-latest` +
-`ubuntu-latest` matrix; the Windows test failure is fixed (79 passed, 0
-failed); `README.md`'s pin is current; both architecture artifacts were
-checked and the one that needed it (`Portfolio Common`) was already
-reconciled in the same session, the other (`Portfolio Thesis`) needed no
-change. `SPEC.md` bumped to `1.1.0` to record the five §13 items this
-closed (1, 2, 3, 8, and the README half of 9).
+Closed Work items 1–4 are in `CHANGELOG.md`.
 
 Work item 5 (the spec-kit scaffolding) is done except **T-045**, the
 maintainer's review — which is also the gate on treating `SPEC.md` §13 as an
