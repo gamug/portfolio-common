@@ -314,6 +314,18 @@ git tag vX.Y.Z && git push origin vX.Y.Z
     the user closes with the PR's full URL (one per repo when the effort
     spans several), so it can be opened for review directly — never just
     "PR opened" or a bare number.
+12. **Verify the checked-out branch is actually fresh *before* editing a
+    single file for a new task — never assume whatever is checked out is
+    safe to build on.** Before starting development on a new task/fix
+    (item 3), check the current branch's real state: is it `master` itself
+    (about to be branched from), or does it already carry an open PR that
+    is a deliberate continuation of the work about to happen? If neither —
+    if it's a leftover branch whose PR already merged, or one that has
+    fallen behind `origin/master` — create the new branch off up-to-date
+    `origin/master` first, then start editing. Discovering this after work
+    has already begun means salvaging the diff (`git diff` to a patch,
+    discard, rebranch, reapply) instead of a five-second check up front —
+    a real cost in wasted tool calls and tokens, not just tidiness.
 
 ## Governance
 
@@ -333,4 +345,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-24
+**Version**: 1.2.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-27
