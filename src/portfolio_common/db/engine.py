@@ -85,11 +85,11 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _STALE_WAL_MSG = (
     "{path} has an orphaned write-ahead log ({wal} exists and is non-empty "
-    "but there is no {shm}, so no process currently has the database open). "
-    "It is being ATTACHed read-only (mode=ro), which cannot replay a WAL, so "
-    "the newest data would be invisible. Checkpoint it "
-    'first -- `sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- or '
-    "let its writer close cleanly, then re-run."
+    "but there is no {shm}, so no process currently has the database open) "
+    "-- most likely an abnormal exit, or a copy of {path} taken without "
+    "checkpointing first (so {wal}/{shm} may not be a consistent snapshot of "
+    "that moment). Checkpoint it before trusting it -- "
+    '`sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- then re-run.'
 )
 _ATTACH_FAILED_MSG = "Could not ATTACH {path} read-only (mode=ro) as {alias!r}: {error}."
 
@@ -255,16 +255,29 @@ class Database:
         :class:`~portfolio_common.db.safety.Allowlist` check).
 
         ``read_only=True`` (default) attaches via ``file:{path}?mode=ro``,
-        and first runs a stale-WAL preflight: a read-only attach cannot
-        replay a leftover write-ahead log, so a database left with an
-        orphaned ``-wal`` sidecar (its writer killed mid-run, or the file
-        copied without checkpointing) would otherwise silently serve stale
-        data instead of failing loudly. Raises :class:`RuntimeError` with a
-        fix-it message instead. A non-empty ``-wal`` *with* its ``-shm``
-        index is a database a live writer has open -- readers see it
-        consistently through the shared index -- so it is NOT rejected;
-        refusing it would make every reader fail whenever the collector is
-        running.
+        and first runs a stale-WAL preflight.
+
+        SQLite (3.22+; every engine this repo targets) already lets a
+        read-only connection safely recover a WAL on its own: a live writer's
+        shared ``-shm`` is read consistently through that index, and even an
+        *orphaned* WAL -- the writer crashed or exited without
+        checkpointing, so nothing shares its ``-shm`` any more, which may not
+        even exist -- is replayed correctly via a private, exclusive-lock
+        reconstruction (verified in ``tests/test_engine.py`` by hard-killing
+        a real writer mid-transaction and attaching read-only against what
+        it left behind). So ``-shm`` presence is **not** a reliable signal
+        of "a writer is live" -- a crashed writer can leave it behind too --
+        but that is fine: the live-writer and crashed-writer cases are both
+        already safe at the engine level regardless of which one this is.
+
+        What this preflight actually guards against is a third case the
+        engine *can't* protect against on its own: ``-wal``/``-shm`` that
+        were copied (backup script, `rsync`, ...) to this path without
+        checkpointing the source first. Nothing guarantees those two sidecar
+        files represent one consistent instant of the original -- the copy
+        itself isn't atomic -- so a non-empty, un-checkpointed ``-wal`` found
+        here is treated as suspect and rejected with a fix-it
+        :class:`RuntimeError` rather than trusted blindly.
         """
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid ATTACH alias: {alias!r}")
@@ -272,7 +285,13 @@ class Database:
         if read_only:
             wal = p.with_name(p.name + "-wal")
             shm = p.with_name(p.name + "-shm")
-            if wal.exists() and wal.stat().st_size > 0 and not shm.exists():
+            try:
+                wal_size = wal.stat().st_size
+            except FileNotFoundError:
+                # Gone by the time we looked (e.g. its writer just
+                # checkpointed) -- nothing to guard against.
+                wal_size = 0
+            if wal_size > 0 and not shm.exists():
                 raise RuntimeError(_STALE_WAL_MSG.format(path=p, wal=wal, shm=shm.name))
             uri = f"file:{p.as_posix()}?mode=ro"
         else:

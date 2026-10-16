@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.2.2 — read-only ATTACH no longer blocked by a live writer
+
 ### Fixed
 
 - **`Database.attach(read_only=True)` no longer fails while a writer is live.**
@@ -10,7 +12,20 @@
   `portfolio-data-mining` collector) has open -- so `portfolio-nlp` /
   `-knowledge-graph` / `-financial-analysis` could not attach `urls.db` for as
   long as the collector ran. It now rejects only an *orphaned* WAL (non-empty
-  `-wal` and no `-shm`, i.e. nobody has the file open).
+  `-wal` and no `-shm`); a live writer's shared `-shm` means readers already
+  see it consistently through SQLite's own WAL recovery, so that case is no
+  longer rejected. A read-only attach against a `-wal`/`-shm` pair left by a
+  writer that was killed outright (not just closed) is also no longer
+  rejected -- verified by killing a real writer process mid-transaction in
+  `tests/test_engine.py` -- since SQLite's own read-only recovery (3.22+)
+  handles that case correctly on its own; the remaining case this preflight
+  rejects is a `-wal` copied (backup/`rsync`) without its `-shm` and without
+  checkpointing the source first, which *is* untrustworthy. Also fixes a
+  `FileNotFoundError` the preflight could raise if the `-wal` disappeared
+  (writer finished checkpointing) between the check and the `stat()` call,
+  and a contradiction in the orphaned-WAL error message that told the
+  operator to "let its writer close cleanly" in the one case this code path
+  has already established there is no writer.
 
 ### Removed
 

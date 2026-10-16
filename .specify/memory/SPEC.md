@@ -114,7 +114,7 @@ behavior #1).
 | **FR-001** | `Database.connect(path, …)` applies one shared pragma policy for the whole system: `row_factory = sqlite3.Row` always; `busy_timeout_ms` (default 30 000) always on a writable connection; `wal=True` also sets `journal_mode=WAL` + `synchronous=NORMAL`; `foreign_keys=True` sets `PRAGMA foreign_keys=ON`; parent directories created unless `create_parents=False`. | A connection opened with defaults reports the configured `busy_timeout`; `wal=True` reports `journal_mode=wal`; `foreign_keys=True` enforces a declared FK (an offending `INSERT` raises); a path in a non-existent directory is openable without the caller pre-creating it. |
 | **FR-002** | `read_only=True` opens `file:{path}?mode=ro` via URI and applies **no** write-oriented pragmas and no directory creation (nothing to retry or enforce on a connection that cannot write); every other flag is ignored. | A `read_only=True` connection raises on any write statement; no directory is created for a non-existent parent; rows still come back as `Row`. |
 | **FR-003** | `Database.connect_url(url)` is the single connect entry point a consumer's own `connect()` calls, dispatching on scheme: a filesystem path, a `file:` URI (handed through untouched), or `sqlite:///path`. A Windows drive letter (`"D:/thesis/nlp.db"`) is a path, not a `d:` URL; an unknown `scheme://` raises `ValueError`; the target is always opened `uri=True` so a later read-only `ATTACH` is honored. | `_split_url` returns `("sqlite", …)` for a bare path, a `PathLike`, `sqlite:///rel.db`, `sqlite:////abs.db`, `D:/win.db`, and a `file:…?mode=ro` URI; `postgresql://…` raises `ValueError` naming the unsupported scheme and the known ones. |
-| **FR-004** | `attach(path, alias, read_only=True)` attaches a second schema, validating *alias* against a plain-identifier regex, and — for a read-only attach — first runs a **stale-WAL preflight**: a non-empty `-wal` sidecar raises `RuntimeError` with a fix-it message rather than silently serving pre-WAL data a read-only connection cannot replay. A failed `ATTACH` is re-raised as `RuntimeError` naming path, alias and cause. `detach(alias)` is the inverse and raises if the alias isn't attached (conditional attachers track that themselves — `TwoTierDatabase`). | A non-identifier alias raises `ValueError` before any SQL runs; a fixture DB with a non-empty `-wal` file raises `RuntimeError` mentioning the WAL path; after `attach`, a table in the attached file is readable as `alias.table` and unwritable. |
+| **FR-004** | `attach(path, alias, read_only=True)` attaches a second schema, validating *alias* against a plain-identifier regex, and — for a read-only attach — first runs an **orphaned-WAL preflight**: a non-empty `-wal` sidecar with no `-shm` raises `RuntimeError` with a fix-it message (SQLite's own read-only WAL recovery already handles both a live writer's shared `-shm` and a crashed writer's missing `-shm` correctly, so only an unverified copy — `-wal` without its `-shm`, e.g. from a backup taken without checkpointing — is rejected). A failed `ATTACH` is re-raised as `RuntimeError` naming path, alias and cause. `detach(alias)` is the inverse and raises if the alias isn't attached (conditional attachers track that themselves — `TwoTierDatabase`). | A non-identifier alias raises `ValueError` before any SQL runs; a fixture DB with a non-empty `-wal` and no `-shm` raises `RuntimeError` mentioning the WAL path; a non-empty `-wal` *with* a `-shm` (live writer, or one killed outright) attaches successfully and reads the committed snapshot; after `attach`, a table in the attached file is readable as `alias.table` and unwritable. |
 | **FR-005** | Runtime schema introspection and DDL live on `Database`, so no consumer hand-writes `PRAGMA table_info` or `executescript`: `table_columns` (definition order, `[]` for a missing table, optional attached `schema=`), `table_exists`, `ensure_columns` (additive, no-op when current), `create_schema(ddl)`, `copy_row_lean` (cross-schema `INSERT … SELECT` over the column intersection, cached per `(dest, source, exclude)`). | `table_columns` returns `[]` for an absent table and the declared order for a present one; `ensure_columns` adds only missing columns and is idempotent on a second call; `copy_row_lean` copies the intersection and omits excluded columns; a non-identifier table/schema name raises `ValueError`. |
 | **FR-006** | Catalog and schema-version access are engine-neutral methods, replacing hand-written `sqlite_master` queries and the `try: execute(…) except OperationalError` "is this relation present" idiom: `relation_exists`, `relation_kind` (`"table"`/`"view"`/`None`), `relation_ddl` (stored `CREATE` text), plus `schema_version` / `set_schema_version(n)` over `PRAGMA user_version`. | `relation_kind` distinguishes a table from a view and returns `None` for neither; `relation_ddl` returns the stored `CREATE` text and `None` for an absent relation; `set_schema_version(n)` then `schema_version` round-trips `n`. |
 | **FR-007** | `Dialect` (Protocol) + `SqliteDialect` expose every engine-specific SQL fragment the consumers used to write inline — `placeholder` / `placeholders(n)`, `insert` / `insert_or_ignore` / `upsert` / `insert_or_ignore_select`, `year_expr` / `year_month_expr` / `week_start_expr` / `week_end_expr` (Monday-start ISO week) / `current_date_expr` (UTC), `group_concat`, `excludes_bare_digit`, `json_extract` / `json_each`, `autoincrement_pk` — and `get_dialect(name="sqlite")` returns the one implementation. It is a **pure string builder**: it holds no connection and performs no identifier safety of its own (that stays the caller's job via `Allowlist`). | `SqliteDialect` emits byte-for-byte the strings the consumers previously inlined (the adoption PRs were pure refactors, asserted per fragment in `test_dialect.py`); `placeholders(0)` raises `ValueError`; `get_dialect("postgres")` raises rather than silently returning the SQLite one. |
@@ -289,9 +289,14 @@ the secondary attached read-only *unless both resolve to the same file*
 with. Teardown is the consumer's `finally: db.detach(alias); db.close()`;
 `TwoTierDatabase.detach` is safe when the attach never happened (FR-010).
 
-**Stale-WAL preflight** (FR-004): before a read-only attach, a non-empty
-`-wal` sidecar aborts with a fix-it `RuntimeError` — a read-only connection
-cannot replay the log, so the alternative is silently serving stale data.
+**Orphaned-WAL preflight** (FR-004): before a read-only attach, a non-empty
+`-wal` sidecar with no `-shm` aborts with a fix-it `RuntimeError`. A `-wal`
+*with* its `-shm` — whether the writer is still live or was killed outright
+without closing — is not rejected: SQLite's own read-only WAL recovery
+(3.22+) already reads it correctly either way. What this preflight actually
+catches is a `-wal` copied without its `-shm` and without the source
+checkpointing first (a backup/`rsync` taken mid-write), which is not
+guaranteed to be a consistent snapshot.
 
 **Release** (the workflow that actually ships anything here):
 
@@ -360,9 +365,11 @@ Governing principle: **fail loudly, never swallow silently** — and, for a
 library four repos depend on, fail *at the call that was wrong* rather than
 somewhere downstream. Concretely:
 
-- **Stale WAL raises with a fix-it message** (FR-004) rather than serving
-  stale data: the failure mode this replaces is silent and data-corrupting,
-  which is why it's a preflight and not a warning.
+- **Orphaned WAL raises with a fix-it message** (FR-004) rather than trusting
+  an unverified copy: a live or crashed writer's `-wal`/`-shm` pair is safe
+  on its own (SQLite's own read-only recovery handles both), but a `-wal`
+  copied without its `-shm` has no such guarantee, so it's a preflight and
+  not a warning.
 - **A failed `ATTACH` is re-raised as `RuntimeError` naming path, alias and
   the original error** — the common misconfiguration (wrong path, file locked,
   no read permission) is otherwise a bare `OperationalError` with no context.
@@ -409,11 +416,11 @@ getting it slightly differently was the original defect (§1).
   file under `tmp_path`. No network, no server, no committed fixture DB, no
   GPU. `tests/` is the one place outside `db/engine.py`/`db/two_store.py`
   allowed to `import sqlite3` — it is testing the engine binding itself.
-- **Coverage mapping** (79 tests across 6 files):
+- **Coverage mapping** (82 tests across 6 files):
 
 | File | Tests | Covers |
 |---|---|---|
-| `test_engine.py` | 19 | FR-001, FR-002, FR-004, FR-005, FR-006 |
+| `test_engine.py` | 22 | FR-001, FR-002, FR-004, FR-005, FR-006 |
 | `test_engine_agnostic.py` | 22 | FR-003 (URL dispatch), FR-005/006 (introspection, catalog, `user_version`), NR-006 |
 | `test_dialect.py` | 18 | FR-007, FR-008 |
 | `test_safety.py` | 7 | FR-009 |
