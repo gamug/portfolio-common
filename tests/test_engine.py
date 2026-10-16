@@ -201,12 +201,15 @@ def test_attach_rejects_invalid_alias(tmp_path: Path) -> None:
         db.close()
 
 
-def test_attach_rejects_orphaned_wal(tmp_path: Path) -> None:
-    """The realistic version of "orphaned WAL": a backup/`rsync`-style copy
-    that took the database + `-wal` but not `-shm` (SQLite's own docs call
-    `-shm` disposable, so tools commonly skip it) *before* the source
-    checkpointed. The copy's `-wal`/`-shm` pairing can't be trusted to be one
-    consistent instant of the original -- the copy itself wasn't atomic."""
+def test_attach_rejects_wal_copied_without_shm(tmp_path: Path) -> None:
+    """The narrow shape this preflight actually catches: a backup/`rsync`
+    that copied the database + `-wal` but not `-shm` (SQLite's own docs call
+    `-shm` disposable, so tools commonly skip it) while the source was quiet
+    in between writes -- a plain sequential copy, no concurrent checkpoint.
+    Rejected because nothing here *proves* the two files are one consistent
+    instant, even though a quiescent copy like this one happens to be fine.
+    See `test_attach_does_not_catch_a_checkpoint_torn_copy` below for the
+    copy shape that actually is unsafe -- and that this check misses."""
     source_path = tmp_path / "source.db"
     writer = Database.connect(source_path, wal=True)
     writer.execute("CREATE TABLE t (id INTEGER)")
@@ -229,6 +232,64 @@ def test_attach_rejects_orphaned_wal(tmp_path: Path) -> None:
             db.close()
     finally:
         writer.close()
+
+
+def test_attach_does_not_catch_a_checkpoint_torn_copy(tmp_path: Path) -> None:
+    """Known limitation, documented rather than silently assumed away: this
+    preflight only ever looks at `-wal` size and `-shm` presence, so it has
+    no way to catch a copy that tears the **main `.db` file itself** by
+    racing a checkpoint on the source -- and a checkpoint truncates `-wal`
+    to empty, so the one check this function does run doesn't even fire.
+
+    Built deterministically (no timing/sleeps, no flakiness risk): copy the
+    main db file's bytes from *before* a checkpoint, force the checkpoint
+    (which rewrites the whole file), then copy the bytes from *after* --
+    producing a file whose header still claims the pre-checkpoint page
+    count while its body is the post-checkpoint layout. That is exactly
+    what an unlucky plain `cp`/`rsync` mid-checkpoint would produce.
+
+    The result: `PRAGMA integrity_check` reports "ok", `attach()` raises
+    nothing, and the attached schema has **no tables** -- silent, wrong,
+    and unflagged. This is not a bug introduced by this fix; it is a gap
+    in what a `-wal`/`-shm`-only heuristic can ever catch, which is why the
+    docstring on `attach()` does not claim this preflight is a backup-safety
+    guarantee. A caller that needs a safe copy of a live database should use
+    SQLite's own backup API (`.backup` / `VACUUM INTO`), not a plain file
+    copy -- this preflight cannot stand in for that."""
+    source_path = tmp_path / "source.db"
+    writer = Database.connect(source_path, wal=True)
+    writer.execute("CREATE TABLE t (id INTEGER)")
+    writer.execute("INSERT INTO t VALUES (1)")
+    writer.commit()
+    try:
+        pre_checkpoint_bytes = source_path.read_bytes()  # header-only page(s)
+
+        writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # rewrites the whole file
+        post_checkpoint_bytes = source_path.read_bytes()
+        assert Path(f"{source_path}-wal").stat().st_size == 0
+
+        # The torn copy a mid-checkpoint `cp`/`rsync` would have produced:
+        # old header, new body.
+        copy_path = tmp_path / "other.db"
+        copy_path.write_bytes(
+            pre_checkpoint_bytes + post_checkpoint_bytes[len(pre_checkpoint_bytes) :]
+        )
+    finally:
+        writer.close()
+
+    probe = sqlite3.connect(f"file:{copy_path.as_posix()}?mode=ro", uri=True)
+    try:
+        assert probe.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert probe.execute("SELECT name FROM sqlite_master").fetchall() == []
+    finally:
+        probe.close()
+
+    db = Database.connect(tmp_path / "main.db", uri=True)
+    try:
+        db.attach(copy_path, "other", read_only=True)  # does not raise
+        assert db.execute("SELECT name FROM other.sqlite_master").fetchall() == []
+    finally:
+        db.close()
 
 
 def test_attach_allows_wal_database_held_open_by_live_writer(tmp_path: Path) -> None:

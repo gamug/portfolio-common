@@ -270,14 +270,28 @@ class Database:
         but that is fine: the live-writer and crashed-writer cases are both
         already safe at the engine level regardless of which one this is.
 
-        What this preflight actually guards against is a third case the
-        engine *can't* protect against on its own: ``-wal``/``-shm`` that
-        were copied (backup script, `rsync`, ...) to this path without
-        checkpointing the source first. Nothing guarantees those two sidecar
-        files represent one consistent instant of the original -- the copy
-        itself isn't atomic -- so a non-empty, un-checkpointed ``-wal`` found
-        here is treated as suspect and rejected with a fix-it
+        What this preflight *narrowly* catches: a non-empty ``-wal`` with no
+        ``-shm`` next to it -- e.g. a backup/`rsync` that copied the ``.db``
+        and ``-wal`` but not ``-shm`` (SQLite's own docs call ``-shm``
+        disposable, so tools commonly skip it) while the source was quiet in
+        between writes. That shape is rejected with a fix-it
         :class:`RuntimeError` rather than trusted blindly.
+
+        This is **not** a general backup-safety guarantee, and does not
+        catch the actually dangerous version of "copied without
+        checkpointing": copying the ``.db`` file itself while a
+        **checkpoint** on the source races the copy can tear the main file
+        (old header, new body, or vice versa) into a state SQLite reads
+        without error -- ``PRAGMA integrity_check`` passes -- but with
+        *all* tables missing, and because a checkpoint truncates ``-wal``
+        to empty, this preflight's ``-wal`` size check never even fires
+        for it (reproduced deterministically in
+        ``tests/test_engine.py::test_attach_does_not_catch_a_checkpoint_torn_copy``,
+        which documents this as a known limitation rather than silently
+        claiming coverage this function doesn't have). Copying a live
+        SQLite file with a plain file copy is unsafe in general; use
+        SQLite's backup API (``.backup`` / ``VACUUM INTO``) or stop the
+        writer first for anything that needs to be safe against this.
         """
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid ATTACH alias: {alias!r}")
