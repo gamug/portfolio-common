@@ -84,9 +84,10 @@ class RowLike(Protocol):
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _STALE_WAL_MSG = (
-    "{path} has an un-checkpointed write-ahead log ({wal} exists and is "
-    "non-empty). It is being ATTACHed read-only (mode=ro), which cannot "
-    "replay a WAL, so the newest data would be invisible. Checkpoint it "
+    "{path} has an orphaned write-ahead log ({wal} exists and is non-empty "
+    "but there is no {shm}, so no process currently has the database open). "
+    "It is being ATTACHed read-only (mode=ro), which cannot replay a WAL, so "
+    "the newest data would be invisible. Checkpoint it "
     'first -- `sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- or '
     "let its writer close cleanly, then re-run."
 )
@@ -256,18 +257,23 @@ class Database:
         ``read_only=True`` (default) attaches via ``file:{path}?mode=ro``,
         and first runs a stale-WAL preflight: a read-only attach cannot
         replay a leftover write-ahead log, so a database left with an
-        un-checkpointed ``-wal`` sidecar (its writer killed mid-run, or the
-        file copied without checkpointing) would otherwise silently serve
-        stale data instead of failing loudly. Raises :class:`RuntimeError`
-        with a fix-it message instead.
+        orphaned ``-wal`` sidecar (its writer killed mid-run, or the file
+        copied without checkpointing) would otherwise silently serve stale
+        data instead of failing loudly. Raises :class:`RuntimeError` with a
+        fix-it message instead. A non-empty ``-wal`` *with* its ``-shm``
+        index is a database a live writer has open -- readers see it
+        consistently through the shared index -- so it is NOT rejected;
+        refusing it would make every reader fail whenever the collector is
+        running.
         """
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid ATTACH alias: {alias!r}")
         p = Path(path)
         if read_only:
             wal = p.with_name(p.name + "-wal")
-            if wal.exists() and wal.stat().st_size > 0:
-                raise RuntimeError(_STALE_WAL_MSG.format(path=p, wal=wal))
+            shm = p.with_name(p.name + "-shm")
+            if wal.exists() and wal.stat().st_size > 0 and not shm.exists():
+                raise RuntimeError(_STALE_WAL_MSG.format(path=p, wal=wal, shm=shm.name))
             uri = f"file:{p.as_posix()}?mode=ro"
         else:
             uri = f"file:{p.as_posix()}"

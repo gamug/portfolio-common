@@ -196,24 +196,39 @@ def test_attach_rejects_invalid_alias(tmp_path: Path) -> None:
         db.close()
 
 
-def test_attach_rejects_stale_wal(tmp_path: Path) -> None:
+def test_attach_rejects_orphaned_wal(tmp_path: Path) -> None:
     other_path = tmp_path / "other.db"
-    holder = sqlite3.connect(other_path)
-    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
-    holder.execute("PRAGMA wal_autocheckpoint=0")
-    holder.execute("CREATE TABLE t (id INTEGER)")
-    holder.commit()
+    sqlite3.connect(other_path).close()
+    # A leftover -wal with no -shm: nobody has the database open.
+    Path(f"{other_path}-wal").write_bytes(b"\x00" * 64)
+
+    db = Database.connect(tmp_path / "main.db", uri=True)
+    try:
+        with pytest.raises(RuntimeError, match="wal_checkpoint"):
+            db.attach(other_path, "other", read_only=True)
+    finally:
+        db.close()
+
+
+def test_attach_allows_wal_database_held_open_by_live_writer(tmp_path: Path) -> None:
+    other_path = tmp_path / "other.db"
+    writer = Database.connect(other_path, wal=True)
+    writer.execute("CREATE TABLE t (id INTEGER)")
+    writer.execute("INSERT INTO t VALUES (1)")
+    writer.commit()
+    writer.execute("INSERT INTO t VALUES (2)")  # open write transaction
     try:
         assert Path(f"{other_path}-wal").stat().st_size > 0
 
         db = Database.connect(tmp_path / "main.db", uri=True)
         try:
-            with pytest.raises(RuntimeError, match="wal_checkpoint"):
-                db.attach(other_path, "other", read_only=True)
+            db.attach(other_path, "other", read_only=True)
+            assert db.execute("SELECT count(*) FROM other.t").fetchone()[0] == 1
         finally:
             db.close()
     finally:
-        holder.close()
+        writer.rollback()
+        writer.close()
 
 
 def test_attach_read_write_does_not_require_uri_scheme_on_alias(tmp_path: Path) -> None:

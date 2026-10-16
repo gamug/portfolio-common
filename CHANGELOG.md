@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`Database.attach(read_only=True)` no longer fails while a writer is live.**
+  The stale-WAL preflight rejected any database with a non-empty `-wal`
+  sidecar, which is the normal state of a WAL database a writer (the
+  `portfolio-data-mining` collector) has open -- so `portfolio-nlp` /
+  `-knowledge-graph` / `-financial-analysis` could not attach `urls.db` for as
+  long as the collector ran. It now rejects only an *orphaned* WAL (non-empty
+  `-wal` and no `-shm`, i.e. nobody has the file open).
+
 ### Removed
 
 - **`business_folders/`** — the `v1.0.0` staging area for the three domains
