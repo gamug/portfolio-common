@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## v1.2.2 — read-only ATTACH no longer blocked by a live writer
+
+Additive. `attach(read_only=True)` is strictly less likely to raise than
+`v1.2.1` -- every call that used to succeed still does; no signature changed.
+The `business_folders/` removal below has no public API impact (it was never
+packaged). Safe to adopt by re-pinning alone.
+
+### Fixed
+
+- **`Database.attach(read_only=True)` no longer fails while a writer is live.**
+  The stale-WAL preflight rejected any database with a non-empty `-wal`
+  sidecar, which is the normal state of a WAL database a writer (the
+  `portfolio-data-mining` collector) has open -- so `portfolio-nlp` /
+  `-knowledge-graph` / `-financial-analysis` could not attach `urls.db` for as
+  long as the collector ran. It now rejects only an *orphaned* WAL (non-empty
+  `-wal` and no `-shm`); a live writer's shared `-shm` means readers already
+  see it consistently through SQLite's own WAL recovery, so that case is no
+  longer rejected. A read-only attach against a `-wal`/`-shm` pair left by a
+  writer that was killed outright (not just closed) is also no longer
+  rejected -- verified by killing a real writer process mid-transaction in
+  `tests/test_engine.py` -- since SQLite's own read-only recovery (3.22+)
+  handles that case correctly on its own. The one case this preflight still
+  rejects is a `-wal` copied (backup/`rsync`) without its `-shm`, taken while
+  the source was quiet -- not proven unsafe, just not proven safe either, so
+  it stays rejected. **This preflight is a narrow heuristic, not a
+  backup-safety guarantee**: a copy that races an actual checkpoint on the
+  source can tear the main `.db` file itself into a state that reads clean
+  (`PRAGMA integrity_check` passes) but has silently lost every table, and
+  since a checkpoint empties `-wal`, this preflight's one check doesn't even
+  fire for it -- reproduced deterministically in
+  `tests/test_engine.py::test_attach_does_not_catch_a_checkpoint_torn_copy`
+  rather than left as a claim. Copying a live SQLite file safely needs
+  SQLite's own backup API, not this function. Also fixes a
+  `FileNotFoundError` the preflight could raise if the `-wal` disappeared
+  (writer finished checkpointing) between the check and the `stat()` call,
+  and a contradiction in the orphaned-WAL error message that told the
+  operator to "let its writer close cleanly" in the one case this code path
+  has already established there is no writer.
+
 ### Removed
 
 - **`business_folders/`** — the `v1.0.0` staging area for the three domains

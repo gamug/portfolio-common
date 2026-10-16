@@ -84,11 +84,12 @@ class RowLike(Protocol):
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _STALE_WAL_MSG = (
-    "{path} has an un-checkpointed write-ahead log ({wal} exists and is "
-    "non-empty). It is being ATTACHed read-only (mode=ro), which cannot "
-    "replay a WAL, so the newest data would be invisible. Checkpoint it "
-    'first -- `sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- or '
-    "let its writer close cleanly, then re-run."
+    "{path} has an orphaned write-ahead log ({wal} exists and is non-empty "
+    "but there is no {shm}, so no process currently has the database open) "
+    "-- most likely an abnormal exit, or a copy of {path} taken without "
+    "checkpointing first (so {wal}/{shm} may not be a consistent snapshot of "
+    "that moment). Checkpoint it before trusting it -- "
+    '`sqlite3 {path} "PRAGMA wal_checkpoint(TRUNCATE);"` -- then re-run.'
 )
 _ATTACH_FAILED_MSG = "Could not ATTACH {path} read-only (mode=ro) as {alias!r}: {error}."
 
@@ -254,20 +255,58 @@ class Database:
         :class:`~portfolio_common.db.safety.Allowlist` check).
 
         ``read_only=True`` (default) attaches via ``file:{path}?mode=ro``,
-        and first runs a stale-WAL preflight: a read-only attach cannot
-        replay a leftover write-ahead log, so a database left with an
-        un-checkpointed ``-wal`` sidecar (its writer killed mid-run, or the
-        file copied without checkpointing) would otherwise silently serve
-        stale data instead of failing loudly. Raises :class:`RuntimeError`
-        with a fix-it message instead.
+        and first runs a stale-WAL preflight.
+
+        SQLite (3.22+; every engine this repo targets) already lets a
+        read-only connection safely recover a WAL on its own: a live writer's
+        shared ``-shm`` is read consistently through that index, and even an
+        *orphaned* WAL -- the writer crashed or exited without
+        checkpointing, so nothing shares its ``-shm`` any more, which may not
+        even exist -- is replayed correctly via a private, exclusive-lock
+        reconstruction (verified in ``tests/test_engine.py`` by hard-killing
+        a real writer mid-transaction and attaching read-only against what
+        it left behind). So ``-shm`` presence is **not** a reliable signal
+        of "a writer is live" -- a crashed writer can leave it behind too --
+        but that is fine: the live-writer and crashed-writer cases are both
+        already safe at the engine level regardless of which one this is.
+
+        What this preflight *narrowly* catches: a non-empty ``-wal`` with no
+        ``-shm`` next to it -- e.g. a backup/`rsync` that copied the ``.db``
+        and ``-wal`` but not ``-shm`` (SQLite's own docs call ``-shm``
+        disposable, so tools commonly skip it) while the source was quiet in
+        between writes. That shape is rejected with a fix-it
+        :class:`RuntimeError` rather than trusted blindly.
+
+        This is **not** a general backup-safety guarantee, and does not
+        catch the actually dangerous version of "copied without
+        checkpointing": copying the ``.db`` file itself while a
+        **checkpoint** on the source races the copy can tear the main file
+        (old header, new body, or vice versa) into a state SQLite reads
+        without error -- ``PRAGMA integrity_check`` passes -- but with
+        *all* tables missing, and because a checkpoint truncates ``-wal``
+        to empty, this preflight's ``-wal`` size check never even fires
+        for it (reproduced deterministically in
+        ``tests/test_engine.py::test_attach_does_not_catch_a_checkpoint_torn_copy``,
+        which documents this as a known limitation rather than silently
+        claiming coverage this function doesn't have). Copying a live
+        SQLite file with a plain file copy is unsafe in general; use
+        SQLite's backup API (``.backup`` / ``VACUUM INTO``) or stop the
+        writer first for anything that needs to be safe against this.
         """
         if not _IDENTIFIER_RE.match(alias):
             raise ValueError(f"invalid ATTACH alias: {alias!r}")
         p = Path(path)
         if read_only:
             wal = p.with_name(p.name + "-wal")
-            if wal.exists() and wal.stat().st_size > 0:
-                raise RuntimeError(_STALE_WAL_MSG.format(path=p, wal=wal))
+            shm = p.with_name(p.name + "-shm")
+            try:
+                wal_size = wal.stat().st_size
+            except FileNotFoundError:
+                # Gone by the time we looked (e.g. its writer just
+                # checkpointed) -- nothing to guard against.
+                wal_size = 0
+            if wal_size > 0 and not shm.exists():
+                raise RuntimeError(_STALE_WAL_MSG.format(path=p, wal=wal, shm=shm.name))
             uri = f"file:{p.as_posix()}?mode=ro"
         else:
             uri = f"file:{p.as_posix()}"
